@@ -1,6 +1,10 @@
 from google import genai
+import os
 
-client = genai.Client(api_key="AIzaSyC3UpAAI3A1f4NMzhzH2BayGJ-U0xvHrv4")
+
+API_KEY = os.getenv("GEMINI_API_KEY")
+print("API_KEY:", API_KEY)  # Debugging line to check if the API key is loaded correctly
+client = genai.Client(api_key=API_KEY)
 
 # Define the persona traits dynamically
 person = "Donald Trump" # Or "Narendra Modi"

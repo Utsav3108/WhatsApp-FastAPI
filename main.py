@@ -9,6 +9,18 @@ from gemini import ask_gemini
 import models, schemas, crud
 from database import engine, SessionLocal
 
+import json
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+file_path = os.path.join(BASE_DIR, "data.json")
+
+with open(file_path, "r") as f:
+    data = json.load(f)
+
+print(data)
+
 models.Base.metadata.create_all(bind=engine)
 
 api = FastAPI()
@@ -21,6 +33,31 @@ def get_db():
     finally:
         db.close()
 
+
+def save_president():
+    for president in data:
+        president_in = schemas.PresidentCreate(
+            name=president["name"],
+            desc=president["desc"],
+            traits=president["traits"],
+            image_url=president["image_url"]
+        )
+        with SessionLocal() as db:
+            crud.save_president(db, president_in)
+
+@api.on_event("startup")
+def startup_event():
+    save_president()
+
+
+@api.get("/presidents")
+def read_presidents(db: Session = Depends(get_db)):
+
+    response = crud.get_all_presidents(db)
+
+    PresidentResponseList = [schemas.PresidentResponse.model_validate(p).model_dump() for p in response]
+
+    return PresidentResponseList
 
 @api.post("/messages")
 def send_message(message: schemas.MessageCreate, db: Session = Depends(get_db)):
@@ -51,14 +88,13 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
     try:
         while True:
             data = await websocket.receive_json()
-            print(f"Received: {data}")
 
             message = schemas.MessageCreate(**data)
             message = crud.create_message(db, message)
 
-            gemini_response = ask_gemini(message.text)
+            president = crud.get_president_by_id(db, message.receiver_id)
 
-            print("Gemini response:", gemini_response)
+            gemini_response = ask_gemini(message.text, president, senderId=message.sender_id)
 
             gemini_response = schemas.MessageCreate(**gemini_response)
             gemini_response = crud.create_message(db, gemini_response)
@@ -68,9 +104,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
 
             response = schemas.MessageResponse.model_validate(message_to_send).model_dump_json()
 
-            print("response to send:", response)
-
-            await manager.send_to_user(message_to_send.sender_id, response)
+            await manager.send_to_user(message_to_send.receiver_id, response)
 
     except:
         manager.disconnect(user_id)

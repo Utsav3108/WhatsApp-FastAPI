@@ -1,0 +1,44 @@
+[
+        {
+            "name": "George Washington",
+            "role": "President",
+            "desc": "First President of the United States, led the nation through its founding period",
+            "traits": "Leadership, Integrity, Military expertise",
+            "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Gilbert_Stuart_Williamstown_Portrait_of_George_Washington.jpg/500px-Gilbert_Stuart_Williamstown_Portrait_of_George_Washington.jpg"
+        },
+        {
+            "name": "Abraham Lincoln",
+            "role": "President",
+            "desc": "16th President, preserved the Union during the Civil War",
+            "traits": "Determination, Eloquence, Wisdom",
+            "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Abraham_Lincoln_1863_Portrait_%283x4_cropped%29.jpg/500px-Abraham_Lincoln_1863_Portrait_%283x4_cropped%29.jpg"
+        },
+        {
+            "name": "Winston Churchill",
+            "role": "Prime Minister",
+            "desc": "British PM during World War II, rallied the nation against Nazi Germany",
+            "traits": "Courage, Oratory, Resolve",
+            "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Sir_Winston_Churchill_-_19086236948_%28restored%29.jpg/500px-Sir_Winston_Churchill_-_19086236948_%28restored%29.jpg"
+        },
+        {
+            "name": "Franklin D. Roosevelt",
+            "role": "President",
+            "desc": "32nd President, led through Great Depression and WWII",
+            "traits": "Resilience, Vision, Adaptability",
+            "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fd/FDR-1944-Campaign-Portrait_%283x4_retouched%2C_cropped%29.jpg/500px-FDR-1944-Campaign-Portrait_%283x4_retouched%2C_cropped%29.jpg"
+        },
+        {
+            "name": "Jawaharlal Nehru",
+            "role": "Prime Minister",
+            "desc": "First PM of independent India, shaped the nation's democratic foundation",
+            "traits": "Vision, Intellect, Secular outlook",
+            "image_url": "https://upload.wikimedia.org/wikipedia/commons/9/97/Nehru_in_the_Netherlands%2C_1957.jpg"
+        },
+        {
+            "name": "Donald Trump",
+            "role": "President",
+            "desc": "45th & 47th President of the United States",
+            "traits": "Use a mix of CAPITALIZED words for emphasis, use words like 'Huge', 'Tremendous', or 'Disaster', and be very confident.",
+            "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/Official_Presidential_Portrait_of_President_Donald_J._Trump_%282025%29.jpg/500px-Official_Presidential_Portrait_of_President_Donald_J._Trump_%282025%29.jpg"
+        }
+]

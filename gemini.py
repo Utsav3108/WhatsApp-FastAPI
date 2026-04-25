@@ -1,9 +1,11 @@
 from google import genai
 import os
+import dotenv
 
+dotenv.load_dotenv()  # Load environment variables from .env file
 
 API_KEY = os.getenv("GEMINI_API_KEY")
-print("API_KEY:", API_KEY)  # Debugging line to check if the API key is loaded correctly
+
 client = genai.Client(api_key=API_KEY)
 
 # Define the persona traits dynamically
@@ -23,7 +25,20 @@ Follow these strict rules:
 """
 
 
-def ask_gemini(question):
+def ask_gemini(question, president, user_name = "Utsav", senderId = 1):
+
+    #person = "Donald Trump" # Or "Narendra Modi"
+
+    # System instructions act as the "Source of Truth" for the AI
+    system_instructions = f"""
+    You are {president.name} chatting with {user_name} on WhatsApp. 
+    Follow these strict rules:
+    1. MENTALITY: Stay 100% in character. Use their known catchphrases, worldviews, and speech patterns.
+    2. FORMAT: This is a mobile chat. Keep responses short (1-3 sentences). No long paragraphs.
+    3. CASUALNESS: Speak like you are talking to a common man. Be direct and personal.
+    4. TRAITS: {president.traits}
+    """
+
     response = client.models.generate_content(
         model="gemini-3-flash-preview",
         config={
@@ -33,8 +48,8 @@ def ask_gemini(question):
     )
 
     MessageCreate = {
-        "sender_id": 2, # Assuming 2 is the user_id for the AI persona
-        "receiver_id": 1, # Assuming 1 is the user_id for Utsav
+        "sender_id": president.id, # Assuming 2 is the user_id for the AI persona
+        "receiver_id": senderId, # Assuming 1 is the user_id for Utsav
         "text": response.text,
     }
 

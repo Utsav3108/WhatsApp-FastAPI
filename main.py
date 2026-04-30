@@ -96,11 +96,9 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
 
             gemini_response = ask_gemini(message.text, president, senderId=message.sender_id)
 
-            gemini_response = schemas.MessageCreate(**gemini_response)
             gemini_response = crud.create_message(db, gemini_response)
 
             message_to_send = crud.get_message_by_id(db, gemini_response.id)
-
 
             response = schemas.MessageResponse.model_validate(message_to_send).model_dump_json()
 

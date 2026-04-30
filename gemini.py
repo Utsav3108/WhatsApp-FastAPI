@@ -4,7 +4,7 @@ import dotenv
 
 
 from typing import List
-from app import models
+import models
 import schemas
 dotenv.load_dotenv()  # Load environment variables from .env file
 

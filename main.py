@@ -94,7 +94,9 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
 
             president = crud.get_president_by_id(db, message.receiver_id)
 
-            gemini_response = ask_gemini(message.text, president, senderId=message.sender_id)
+            past_messages = crud.get_messages_between_users(db, message.sender_id, message.receiver_id)
+
+            gemini_response = ask_gemini(message.text, president, senderId=message.sender_id, past_messages=past_messages)
 
             gemini_response = crud.create_message(db, gemini_response)
 

@@ -17,6 +17,11 @@ def get_messages(db: Session, user_id: int):
 def get_message_by_id(db: Session, message_id: int):
     return db.query(models.Message).filter(models.Message.id == message_id).first()
 
+def get_messages_between_users(db: Session, user1_id: int, user2_id: int):
+    return db.query(models.Message).filter(
+        ((models.Message.sender_id == user1_id) & (models.Message.receiver_id == user2_id)) |
+        ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))
+    ).order_by(models.Message.timestamp).all()
 
 def get_president_by_id(db: Session, president_id: int):
     return db.query(models.President).filter(models.President.id == president_id).first()

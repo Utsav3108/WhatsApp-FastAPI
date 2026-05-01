@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 
@@ -65,11 +67,17 @@ def send_message(message: schemas.MessageCreate, db: Session = Depends(get_db)):
     return crud.create_message(db, message)
 
 
-@api.get("/messages/{user_id}")
-def read_messages(user_id: int, db: Session = Depends(get_db)):
-    return crud.get_messages(db, user_id)
-
-
+@api.get("/messages", response_model=List[schemas.MessageResponse])
+def get_messages(
+    sender_id: int,
+    receiver_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    return crud.get_messages_between_users(
+        db, sender_id, receiver_id, limit, offset
+    )
 
 manager = ConnectionManager()
 

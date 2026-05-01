@@ -1,5 +1,6 @@
 from typing import List
 
+import asyncio
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 
@@ -82,7 +83,7 @@ def get_messages(
 manager = ConnectionManager()
 
 @api.websocket("/ws/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = Depends(get_db)):
+async def websocket_endpoint(websocket: WebSocket, user_id: int):
 
     token = websocket.query_params.get("token")
 
@@ -93,26 +94,64 @@ async def websocket_endpoint(websocket: WebSocket, user_id: int, db: Session = D
     print("WebSocket connection established for user_id:", user_id)
     await manager.connect(websocket, user_id)
 
+    db = next(get_db())
+
     try:
         while True:
-            data = await websocket.receive_json()
+            payload = await websocket.receive_json()
 
-            message = schemas.MessageCreate(**data)
-            message = crud.create_message(db, message)
+            await handle_send_message(payload, db)
 
-            president = crud.get_president_by_id(db, message.receiver_id)
+            # message = schemas.MessageCreate(**data)
+            # message = crud.create_message(db, message)
 
-            past_messages = crud.get_messages_between_users(db, message.sender_id, message.receiver_id)
+            # president = crud.get_president_by_id(db, message.receiver_id)
 
-            gemini_response = ask_gemini(message.text, president, senderId=message.sender_id, past_messages=past_messages)
+            # past_messages = crud.get_messages_between_users(db, message.sender_id, message.receiver_id)
 
-            gemini_response = crud.create_message(db, gemini_response)
+            # gemini_response = ask_gemini(message.text, president, senderId=message.sender_id, past_messages=past_messages)
 
-            message_to_send = crud.get_message_by_id(db, gemini_response.id)
+            # gemini_response = crud.create_message(db, gemini_response)
 
-            response = schemas.MessageResponse.model_validate(message_to_send).model_dump_json()
+            # message_to_send = crud.get_message_by_id(db, gemini_response.id)
 
-            await manager.send_to_user(message_to_send.receiver_id, response)
+            # response = schemas.MessageResponse.model_validate(message_to_send).model_dump_json()
 
-    except:
+            # await manager.send_to_user(message_to_send.receiver_id, response)
+
+    except Exception as e:
+        print("Error occurred for user_id:", user_id)
+        print("Error:", e)
+
+    finally:
         manager.disconnect(user_id)
+
+
+async def handle_send_message(payload, db: Session):
+
+    message_in = schemas.MessageCreate(**payload)   
+
+    # 1. Save user message to DB
+    message = crud.create_message(db, message_in)
+
+    # 2. Go to Non-blocking call
+    asyncio.create_task(handle_gemini_response(message, db))
+
+
+async def handle_gemini_response(message: models.Message, db: Session):
+
+    # 3. Get president details
+    president = crud.get_president_by_id(db, message.receiver_id)
+
+    # 4. Get past conversation history
+    past_messages = crud.get_messages_between_users(db, message.sender_id, message.receiver_id)
+
+    # 5. Ask Gemini for response
+    gemini_response = ask_gemini(message.text, president, senderId=message.sender_id, past_messages=past_messages)
+
+    # 6. Save Gemini response to DB
+    gemini_response = crud.create_message(db, gemini_response)
+
+    # 7. Send Gemini response back to user via WebSocket
+    response = schemas.MessageResponse.model_validate(gemini_response).model_dump_json()
+    await manager.send_to_user(gemini_response.receiver_id, response)

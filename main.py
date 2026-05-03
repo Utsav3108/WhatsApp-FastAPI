@@ -17,7 +17,6 @@ async def lifespan(app: FastAPI):
     # Startup logic: load presidents from data.json
     with open(file_path, "r") as f:
         data = json.load(f)
-    print(data)
     import schemas, crud
     from database import SessionLocal
     for president in data:

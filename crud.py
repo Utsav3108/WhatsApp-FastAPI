@@ -4,7 +4,6 @@ import datetime
 
 def create_message(db: Session, message: schemas.MessageCreate):
     db_message = models.Message(**message.model_dump())
-    print("db_message:", db_message.text)
     db.add(db_message)
     db.commit()
     db.refresh(db_message)

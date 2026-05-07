@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 from typing import List
+
+from s3_service import S3Service
 import schemas, crud, models
 from database import SessionLocal
 from AppServices.connection_manageer import ConnectionManager
@@ -8,7 +10,6 @@ from gemini import ask_gemini
 
 # For Background tasks
 import asyncio
-import redis
 
 # Import cache functions
 import cache
@@ -16,7 +17,11 @@ import cache
 router = APIRouter()
 manager = ConnectionManager()
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+s3_service = S3Service()
+
+def get_s3_service():
+    return s3_service
+
 
 def get_db():
     db = SessionLocal()
@@ -25,17 +30,31 @@ def get_db():
     finally:
         db.close()
 
-@router.get("/presidents")
-def read_presidents(db: Session = Depends(get_db)):
-    response = crud.get_all_presidents(db)
-    PresidentResponseList = [schemas.PresidentResponse.model_validate(p).model_dump() for p in response]
-    return PresidentResponseList
+@router.get("/search-presidents/{query}", response_model=schemas.BaseResponse)
+def search_presidents(query: str, db: Session = Depends(get_db)):
+    response = crud.search_presidents(db, query)
+    PresidentResponseList = [schemas.PresidentResponse.model_validate(p) for p in response]
+    response = schemas.BaseResponse(success=True, data=PresidentResponseList, message="Presidents retrieved successfully")
+    return response.model_dump()
 
-@router.post("/messages")
-def send_message(message: schemas.MessageCreate, db: Session = Depends(get_db)):
-    return crud.create_message(db, message)
+# Fetch all presidents, the user has done chat with in the past.
+# By Default, send Donald Trump.
+@router.get("/presidents/{user_id}", response_model=schemas.BaseResponse)
+def get_presidents_user_chatted_with(user_id: int, db: Session = Depends(get_db)):
 
-@router.get("/messages", response_model=List[schemas.MessageResponse])
+    response = crud.get_presidents_user_chatted_with(db, user_id)
+
+    if response == []:
+        response = crud.get_president_by_name(db, "Donald Trump") # Default: Donald Trump
+        response = [response]
+
+    PresidentResponseList = [schemas.PresidentResponse.model_validate(p) for p in response]
+
+    response = schemas.BaseResponse(success=True, data=PresidentResponseList, message="Presidents retrieved successfully")
+
+    return response.model_dump()
+
+@router.get("/messages", response_model=schemas.BaseResponse)
 def get_messages(
     sender_id: int,
     receiver_id: int,
@@ -43,9 +62,14 @@ def get_messages(
     offset: int = 0,
     db: Session = Depends(get_db)
 ):
-    return crud.get_messages_between_users(
-        db, sender_id, receiver_id, limit, offset
-    )
+    
+    all_messages = crud.get_messages_between_users(db, sender_id, receiver_id, limit, offset)
+
+    all_messages = [schemas.MessageResponse.model_validate(m) for m in all_messages]
+
+    response = schemas.BaseResponse(success=True, data=all_messages, message="Messages retrieved successfully")
+
+    return response.model_dump()
 
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: int):
@@ -85,7 +109,9 @@ async def handle_send_message(payload, db: Session):
 
     past_messages = []
 
-    cached_response = cache.retrieve_cache(f"conversation_{message.sender_id}_{message.receiver_id}")
+    key = cache.create_cache_message_key(message.sender_id, message.receiver_id)
+
+    cached_response = cache.retrieve_cache(key)
 
     if cached_response:
         past_messages = [schemas.MessageResponse.model_validate(m) for m in cached_response]
@@ -102,7 +128,7 @@ async def handle_send_message(payload, db: Session):
 
     new_cached_response = [m.model_dump() for m in past_messages]
 
-    cache.store_cache(f"conversation_{message.sender_id}_{message.receiver_id}", new_cached_response)
+    cache.store_cache(key, new_cached_response)
 
     #print("Message received and stored. Starting background task to get Gemini response...")
 
@@ -125,7 +151,9 @@ async def handle_gemini_response(message: models.Message, past_messages: List[sc
 
     new_cached_response = [m.model_dump() for m in past_messages]
 
-    cache.store_cache(f"conversation_{message.sender_id}_{message.receiver_id}", new_cached_response)
+    key = cache.create_cache_message_key(message.sender_id, message.receiver_id)
+
+    cache.store_cache(key, new_cached_response)
 
     await manager.send_to_user(gemini_response.receiver_id, response)
 
@@ -133,14 +161,26 @@ async def handle_gemini_response(message: models.Message, past_messages: List[sc
 from fastapi import File, UploadFile
 
 @router.post("/upload-image")
-async def upload_image_to_s3(file: UploadFile = File(...)):
-    from s3_service import S3Service
-
-    s3 = S3Service()
-
+async def upload_image_to_s3(file: UploadFile = File(...), s3: S3Service = Depends(get_s3_service)):
     url = await asyncio.to_thread(s3.upload_file, file.file, file.filename)
     
     return {
         "message": "Image uploaded to S3 successfully.",
         "url": url
     }
+
+@router.get("/get-presigned-url")
+async def get_presigned_url(object_name: str, s3: S3Service = Depends(get_s3_service)):
+    url = await asyncio.to_thread(s3.generate_presigned_url, object_name, for_download=True)
+    return {
+        "url": url  
+    }
+
+@router.get("/get-upload-presigned-url")
+async def get_upload_presigned_url(object_name: str, s3: S3Service = Depends(get_s3_service)):
+    print("Generating presigned URL for upload...")
+    url = await asyncio.to_thread(s3.generate_presigned_url, object_name, for_download=False, content_type="image/jpeg")
+    return {
+        "url": url  
+    }
+    

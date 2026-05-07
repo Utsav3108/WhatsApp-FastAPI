@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Any, List, Optional
 
 class PresidentCreate(BaseModel):
     name: str
@@ -19,9 +20,16 @@ class MessageCreate(BaseModel):
     sender_id: int
     receiver_id: int
     text: str
+    image_object_name: Optional[str] = None
 
 class MessageResponse(MessageCreate):
     id: int
 
     class Config:
         from_attributes = True
+
+
+class BaseResponse(BaseModel):
+    success: bool
+    data: Any
+    message: Optional[str] = None

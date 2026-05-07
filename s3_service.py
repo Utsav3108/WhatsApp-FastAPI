@@ -39,3 +39,24 @@ class S3Service:
             print(f"File {object_name} downloaded from {self.bucket_name} to {file_path}")
         except Exception as e:
             print(f"Error downloading file: {e}")
+
+    def generate_presigned_url(self, file_name: str, for_download: bool, content_type: str = None):
+        if for_download:
+            return self.s3_client.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={
+                    "Bucket": self.bucket_name,
+                    "Key": file_name
+                },
+                ExpiresIn=300
+            )
+        else:
+            return self.s3_client.generate_presigned_url(
+                ClientMethod="put_object",
+                Params={
+                    "Bucket": self.bucket_name,
+                    "Key": file_name,
+                    "ContentType": content_type
+                },
+                ExpiresIn=300
+            )

@@ -22,11 +22,32 @@ def get_messages_between_users(db: Session, user1_id: int, user2_id: int, limit:
         ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))
     ).order_by(models.Message.timestamp).offset(offset).limit(limit).all()
 
+
+def search_presidents(db: Session, query: str):
+    return db.query(models.President).filter(models.President.name.ilike(f"%{query}%")).all()
+
 def get_president_by_id(db: Session, president_id: int):
     return db.query(models.President).filter(models.President.id == president_id).first()
 
+def get_president_by_name(db: Session, name: str):
+    return db.query(models.President).filter(models.President.name == name).first()
+
+
 def get_all_presidents(db: Session):
     return db.query(models.President).all()
+
+
+def get_presidents_user_chatted_with(db: Session, user_id: int):
+    # Get all unique president IDs that the user has chatted with
+    sent_to_presidents = db.query(models.Message.receiver_id).filter(models.Message.sender_id == user_id).distinct()
+    received_from_presidents = db.query(models.Message.sender_id).filter(models.Message.receiver_id == user_id).distinct()
+    
+    president_ids = set([pid for (pid,) in sent_to_presidents] + [pid for (pid,) in received_from_presidents])
+    
+    # Fetch president details for these IDs
+    presidents = db.query(models.President).filter(models.President.id.in_(president_ids)).all()
+    
+    return presidents
 
 def save_president(db: Session, president: schemas.PresidentCreate):
     if not check_president_exists(db, president.name):

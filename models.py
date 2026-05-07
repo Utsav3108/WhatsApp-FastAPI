@@ -24,4 +24,5 @@ class Message(Base):
     text = Column(String)
     is_user = Column(Boolean)
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    image_object_name = Column(String, nullable=True)
 

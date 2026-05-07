@@ -1,11 +1,13 @@
+
 # WhatsApp AI Chat Backend
 
-A FastAPI-based backend for a WhatsApp-like chat application, featuring AI-powered responses from historical presidents using Google Gemini. This project demonstrates clean architecture, modular code, and modern Python best practices.
+A FastAPI-based backend for a WhatsApp-like chat application, featuring AI-powered responses from historical presidents using Google Gemini. Now with **Socket.IO** for real-time chat, replacing the legacy FastAPI WebSocket endpoint. This project demonstrates clean architecture, modular code, and modern Python best practices.
+
 
 ## Features
 
-- **FastAPI**: High-performance Python web framework for APIs and WebSockets
-- **WebSocket Support**: Real-time chat with user-to-user and AI persona messaging
+- **FastAPI**: High-performance Python web framework for APIs
+- **Socket.IO Real-Time Chat**: Modern, robust real-time communication using Socket.IO (see `socketio_server.py`)
 - **AI Integration**: Uses Google Gemini to generate responses as historical presidents
 - **SQLite + SQLAlchemy**: Simple, reliable database and ORM
 - **Pydantic**: Data validation and serialization
@@ -16,16 +18,17 @@ A FastAPI-based backend for a WhatsApp-like chat application, featuring AI-power
 ```
 app/
   main.py            # FastAPI app entrypoint, lifespan event for startup
-  routes.py          # All API and WebSocket routes
+   routes.py          # All REST API routes
+   socketio_server.py # Socket.IO event handlers (real-time chat)
   crud.py            # Business logic and DB operations
   database.py        # SQLAlchemy setup
   models.py          # ORM models
   schemas.py         # Pydantic schemas
   gemini.py          # Google Gemini AI integration
-  websocket.py       # (Legacy) WebSocket helpers
+   websocket.py       # (Legacy) WebSocket helpers (no longer used)
   data.json          # Initial data for presidents
-  AppServices/
-    connection_manageer.py # WebSocket connection manager
+   AppServices/
+      connection_manageer.py # Connection manager for real-time users
 ```
 
 ## Quick Start
@@ -49,6 +52,7 @@ app/
      ```env
      GEMINI_API_KEY=your_gemini_api_key_here
      ```
+
 5. **Run the server**
    ```bash
    uvicorn app.main:api --reload
@@ -56,17 +60,42 @@ app/
 6. **Access the API docs**
    - Open [http://localhost:8000/docs](http://localhost:8000/docs)
 
+## Real-Time Chat (Socket.IO)
+
+The backend now uses **Socket.IO** for real-time chat. Connect your client to:
+
+- **Socket.IO endpoint:** `ws://localhost:8000/socket.io/`
+
+### Example Socket.IO Events
+
+- `join` — Register a user session:
+  ```js
+  socket.emit('join', { user_id: 123 });
+  ```
+- `send_message` — Send a chat message:
+  ```js
+  socket.emit('send_message', { sender_id: 123, receiver_id: 456, text: "Hello!" });
+  ```
+- `receive_message` — Receive messages (including AI responses):
+  ```js
+  socket.on('receive_message', (msg) => { console.log(msg); });
+  ```
+
+See `app/socketio_server.py` for all event logic.
+
+
 ## API Overview
 
-- `GET /presidents` — List all presidents
-- `POST /messages` — Send a message
+- `GET /presidents/{user_id}` — List all presidents a user has chatted with
 - `GET /messages` — Get messages between users
-- `WebSocket /ws/{user_id}` — Real-time chat
+- **Real-time chat:** Use Socket.IO events (see above)
+
 
 ## Customization
 - Add or modify presidents in `data.json`
 - Extend AI logic in `gemini.py`
-- Add new routes in `routes.py`
+- Add new REST routes in `routes.py`
+- Add/modify real-time events in `socketio_server.py`
 
 ## License
 
@@ -74,4 +103,5 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
-*Built with FastAPI, SQLAlchemy, and Google Gemini AI.*
+
+*Built with FastAPI, Socket.IO, SQLAlchemy, and Google Gemini AI.*

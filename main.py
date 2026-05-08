@@ -1,5 +1,3 @@
-
-
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 import models
@@ -38,16 +36,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 api = FastAPI(lifespan=lifespan)
 api.include_router(router)
-
-# Mount Socket.IO ASGI app
-from fastapi.middleware.wsgi import WSGIMiddleware
-from starlette.middleware import Middleware
-from starlette.middleware.cors import CORSMiddleware as StarletteCORSMiddleware
-from starlette.routing import Mount
-from starlette.applications import Starlette
-
-from fastapi import Request
-from fastapi.responses import PlainTextResponse
 
 @api.get("/")
 async def root():

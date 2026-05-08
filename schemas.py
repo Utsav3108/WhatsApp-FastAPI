@@ -27,9 +27,3 @@ class MessageResponse(MessageCreate):
 
     class Config:
         from_attributes = True
-
-
-class BaseResponse(BaseModel):
-    success: bool
-    data: Any
-    message: Optional[str] = None

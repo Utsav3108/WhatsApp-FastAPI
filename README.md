@@ -36,7 +36,7 @@ app/
 1. **Clone the repo**
    ```bash
    git clone https://github.com/yourusername/WhatsApp-FastAPI.git
-   cd whatsapp-ai-chat-backend
+   cd WhatsApp-FastAPI
    ```
 
 ## Docker Quick Start

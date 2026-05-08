@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 
-from s3_service import S3Service
-import schemas, crud
-from database import get_db
-from AppServices.connection_manageer import ConnectionManager
+from app.s3_service import S3Service
+from app import schemas, crud
+from app.database import get_db
+from app.AppServices.connection_manageer import ConnectionManager
 
-from services import message_service, president_service
+from app.services import message_service, president_service
 
 router = APIRouter()
 manager = ConnectionManager()   

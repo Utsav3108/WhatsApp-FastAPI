@@ -1,14 +1,14 @@
 import socketio
 from fastapi import FastAPI
 from sqlalchemy.orm import Session
-from database import SessionLocal
-from AppServices.connection_manageer import ConnectionManager
-import schemas as schemas
-import crud as crud
-import cache as cache
-from gemini import ask_gemini
+
+from app.AppServices.connection_manageer import ConnectionManager
+import app.schemas as schemas
+import app.crud as crud
+import app.cache as cache
+from app.gemini import ask_gemini
 import asyncio
-from database import SessionLocal, get_db
+from app.database import get_db
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 sio_app = socketio.ASGIApp(sio)
 manager = ConnectionManager()

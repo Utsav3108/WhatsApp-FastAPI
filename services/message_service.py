@@ -1,6 +1,6 @@
-import crud
-import cache
-from schemas import MessageResponse
+from app import crud, cache
+
+from app.schemas import MessageResponse
 from sqlalchemy.orm import Session
 from typing import List
 

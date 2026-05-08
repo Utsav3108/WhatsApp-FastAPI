@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-import models, schemas
+from app import models, schemas
 
 def create_message(db: Session, message: schemas.MessageCreate):
     db_message = models.Message(**message.model_dump())

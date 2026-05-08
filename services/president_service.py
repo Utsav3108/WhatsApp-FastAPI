@@ -1,6 +1,5 @@
-import crud
-import cache
-from schemas import PresidentResponse
+from app import crud, cache
+from app.schemas import PresidentResponse
 from sqlalchemy.orm import Session
 from typing import List
 

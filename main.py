@@ -1,11 +1,14 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-import models
-from database import engine
+from app import models
+from app.database import engine
 import os
 import json
-from routes import router
-from socketio_server import sio_app
+from app.routes import router
+from app.socketio_server import sio_app
+
+from app import schemas, crud
+from app.database import SessionLocal
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 file_path = os.path.join(BASE_DIR, "data.json")
@@ -17,8 +20,9 @@ async def lifespan(app: FastAPI):
     # Startup logic: load presidents from data.json
     with open(file_path, "r") as f:
         data = json.load(f)
-    import schemas, crud
-    from database import SessionLocal
+    
+
+
     for president in data:
         president_in = schemas.PresidentCreate(
             name=president["name"],
@@ -34,15 +38,15 @@ async def lifespan(app: FastAPI):
 
 from fastapi.middleware.cors import CORSMiddleware
 
-api = FastAPI(lifespan=lifespan)
-api.include_router(router)
+app = FastAPI(lifespan=lifespan)
+app.include_router(router)
 
-@api.get("/")
+@app.get("/")
 async def root():
     return {"message": "FastAPI is running"}
 
 from fastapi.middleware.cors import CORSMiddleware
-api.add_middleware(
+app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -51,4 +55,4 @@ api.add_middleware(
 )
 
 # Mount Socket.IO at /socket.io
-api.mount("/socket.io", sio_app)
+app.mount("/socket.io", sio_app)

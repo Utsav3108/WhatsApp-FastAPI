@@ -103,14 +103,31 @@ async def handle_send_message(payload, db: Session, sid):
             for m in db_msgs
         ]
 
+
     # Add latest user message
     past_messages.append(new_message)
 
-    # Update cache
+    # Update cache for messages
     cache.store_cache(
         key,
         [m.model_dump() for m in past_messages]
     )
+
+    # --- Update presidents chatted cache if needed ---
+    # This cache stores the list of presidents a user has chatted with
+    presidents_chat_key = cache.create_presidents_chat_key(message.sender_id)
+    presidents_chatted = cache.retrieve_cache(presidents_chat_key)
+    if presidents_chatted is not None:
+        # Check if the receiver_id (president) is already in the cache
+        if not any(p.get('id') == message.receiver_id for p in presidents_chatted):
+            # Fetch the president info from DB
+            president = db.query(crud.models.President).filter_by(id=message.receiver_id).first()
+            if president:
+                from app.schemas import PresidentResponse
+                president_data = PresidentResponse.model_validate(president).model_dump()
+                presidents_chatted.append(president_data)
+                cache.store_cache(presidents_chat_key, presidents_chatted)
+    # If not in cache, the next API call will repopulate it as usual
 
     # IMPORTANT:
     # Do not pass the current `db` session to a background task because it

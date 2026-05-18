@@ -12,6 +12,7 @@ from app.database import SessionLocal
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 file_path = os.path.join(BASE_DIR, "data.json")
+scenario_path = os.path.join(BASE_DIR, "scenario.json")
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -32,6 +33,20 @@ async def lifespan(app: FastAPI):
         )
         with SessionLocal() as db:
             crud.save_president(db, president_in)
+
+    # Load and upsert scenarios from scenario.json
+    with open(scenario_path, "r") as f:
+        scenario_data = json.load(f)
+    scenarios = scenario_data.get("scenarios", [])
+    for scenario in scenarios:
+        scenario_in = schemas.ScenarioCreate(
+            id=scenario["id"],
+            title=scenario["title"],
+            image_url=scenario["image_url"],
+            context=schemas.ScenarioContextCreate(**scenario["context"])
+        )
+        with SessionLocal() as db:
+            crud.upsert_scenario(db, scenario_in)
     yield
     # (Optional) Shutdown logic can go here
 

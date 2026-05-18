@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 
@@ -6,10 +7,16 @@ from app import schemas, crud
 from app.database import get_db
 from app.AppServices.connection_manageer import ConnectionManager
 
-from app.services import message_service, president_service
+from app.services import message_service, president_service, scenario_service
 
 router = APIRouter()
 manager = ConnectionManager()   
+
+@router.get("/scenarios", response_model=list[schemas.ScenarioResponse])
+def get_all_scenarios(db: Session = Depends(get_db)):
+    scenarios = scenario_service.get_all_scenarios(db)
+    return scenarios
+
 
 s3_service = S3Service()
 

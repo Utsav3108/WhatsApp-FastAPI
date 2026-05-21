@@ -39,8 +39,8 @@ def get_persona_by_id(db: Session, persona_id: int):
 def get_persona_by_name(db: Session, name: str):
     return db.query(models.Persona).filter(models.Persona.name == name).first()
 
-def get_all_personas(db: Session):
-    return db.query(models.Persona).all()
+def get_all_personas(db: Session, limit: int = 50, offset: int = 0):
+    return db.query(models.Persona).offset(offset).limit(limit).all()
 
 def get_personas_user_chatted_with(db: Session, user_id: int):
     # Get all unique persona IDs that the user has chatted with

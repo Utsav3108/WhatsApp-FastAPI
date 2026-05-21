@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,12 @@ s3_service = S3Service()
 def get_s3_service():
     return s3_service
 
+
+
+@router.get("/all-persona", response_model=list[schemas.PersonaResponse])
+def get_all_persona(limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+    personas = crud.get_all_personas(db, limit=limit, offset=offset)
+    return personas
 
 @router.get("/search-personas/{query}", response_model=list[schemas.PersonaResponse])
 def search_personas(query: str, db: Session = Depends(get_db)):

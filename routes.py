@@ -1,4 +1,11 @@
 
+# --- Storyline Endpoint ---
+from app.schemas import StorylineRequest, StorylineResponse
+from fastapi import Body
+
+from app import gemini
+
+
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 
@@ -62,3 +69,14 @@ def get_all_challenges(db: Session = Depends(get_db)):
 def create_challenge(challenge_in: schemas.ChallengeCreate, db: Session = Depends(get_db)):
     challenge = challenge_service.create_or_update_challenge(db, challenge_in)
     return challenge
+
+
+
+@router.post("/create_storyline", response_model=StorylineResponse)
+def create_storyline(request: StorylineRequest = Body(...), db: Session = Depends(get_db)):
+    challenge = crud.get_challenge_by_id(db, request.challenge_id)
+    if not challenge:
+        return {"storyline": "Challenge not found.", "call_to_action": "Please provide a valid challenge_id."}
+    return gemini.create_storyline(challenge)
+
+

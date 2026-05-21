@@ -1,3 +1,4 @@
+
 from pydantic import BaseModel
 from typing import Any, List, Optional
 
@@ -87,3 +88,13 @@ class ChallengeResponse(ChallengeBase):
 
     class Config:
         from_attributes = True
+
+from pydantic import BaseModel, Field
+
+# Storyline schemas
+class StorylineRequest(BaseModel):
+    challenge_id: str
+
+class StorylineResponse(BaseModel):
+    storyline: str = Field(description="The intro story with dynamic pauses like [pause: 1.0]")
+    call_to_action: str = Field(description="A clear, short instruction telling the user what to do next")

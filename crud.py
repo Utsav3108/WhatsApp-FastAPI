@@ -140,7 +140,7 @@ def _create_challenge_model(challenge: ChallengeCreate) -> Challenge:
 
 
 
-def upsert_challenge(db: Session, challenge: ChallengeCreate):
+def upsert_challenges(db: Session, challenge: ChallengeCreate):
     """
     Create or update a challenge and its associated context.
 

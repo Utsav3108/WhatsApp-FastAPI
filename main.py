@@ -12,7 +12,7 @@ from app.database import SessionLocal
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 file_path = os.path.join(BASE_DIR, "data.json")
-scenario_path = os.path.join(BASE_DIR, "challenge.json")
+challenges_path = os.path.join(BASE_DIR, "challenge.json")
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -41,20 +41,20 @@ async def lifespan(app: FastAPI):
             )
             crud.save_persona(db, persona_in)
 
-    # Load and upsert scenarios
-    with open(scenario_path, "r", encoding="utf-8") as f:
-        scenario_file_data = json.load(f)
+    # Load and upsert challenges
+    with open(challenges_path, "r", encoding="utf-8") as f:
+        challenges_file_data = json.load(f)
 
-    scenarios = scenario_file_data.get("scenarios", [])
+    challenges = challenges_file_data.get("challenges", [])
 
     with SessionLocal() as db:
-        for scenario in scenarios:
+        for challenges in challenges:
             # Let Pydantic parse the entire nested JSON structure,
             # including context, difficulty_settings, challenge_rules, etc.
-            scenario_in = schemas.ScenarioCreate.model_validate(scenario)
+            challenges_in = schemas.ChallengeCreate.model_validate(challenges)
 
-            # Create or update the scenario and its context
-            crud.upsert_scenario(db, scenario_in)
+            # Create or update the challenges and its context
+            crud.upsert_challenges(db, challenges_in)
 
     # ------------------------------------------------------------
     # Application Runs

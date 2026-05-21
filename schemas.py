@@ -1,13 +1,14 @@
 from pydantic import BaseModel
 from typing import Any, List, Optional
 
-class PresidentCreate(BaseModel):
+
+class PersonaCreate(BaseModel):
     name: str
     desc: str
     traits: str
     image_url: str
 
-class PresidentResponse(BaseModel):
+class PersonaResponse(BaseModel):
     id: int
     name: str
     desc: str
@@ -31,36 +32,58 @@ class MessageResponse(MessageCreate):
         from_attributes = True
 
 
-# Scenario schemas
-from typing import Dict, Optional
 
-class ScenarioContextBase(BaseModel):
+
+# Challenge schemas
+from typing import Dict, Optional, Any
+from enum import Enum
+
+class ChallengeContextBase(BaseModel):
     setting: str
+    environment: Optional[Any] = None  # JSON field, optional
     goal: str
     stakes: str
     platform: str
 
-class ScenarioContextCreate(ScenarioContextBase):
+# Enum for challenge difficulty
+class ChallengeDifficulty(str, Enum):
+    beginner = "beginner"
+    intermediate = "intermediate"
+    advance = "advance"
+
+class ChallengeContextCreate(ChallengeContextBase):
     pass
 
-class ScenarioContextResponse(ScenarioContextBase):
+class ChallengeContextResponse(ChallengeContextBase):
     id: int
-    scenario_id: str
+    challenge_id: str
 
     class Config:
         from_attributes = True
 
-class ScenarioBase(BaseModel):
+
+class ChallengeBase(BaseModel):
     title: str
-    image_url: str
+    subtitle: Optional[str] = None
+    description: Optional[str] = None
+    short_description: Optional[str] = None
+    categories: Optional[list[str]] = None
+    suggested_personas: Optional[list[str]] = None
+    difficulty: Optional[ChallengeDifficulty] = None
+    difficulty_settings: Optional[dict] = None
+    estimated_duration_minutes: Optional[int] = None
+    challenge_rules: Optional[dict] = None
+    image_url: Optional[str] = None
 
-class ScenarioCreate(ScenarioBase):
-    id: str
-    context: ScenarioContextCreate
 
-class ScenarioResponse(ScenarioBase):
+class ChallengeCreate(ChallengeBase):
     id: str
-    context: Optional[ScenarioContextResponse]
+    context: ChallengeContextCreate
+
+
+class ChallengeResponse(ChallengeBase):
+    id: str
+    context: Optional[ChallengeContextResponse]
 
     class Config:
         from_attributes = True

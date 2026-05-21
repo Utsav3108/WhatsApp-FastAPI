@@ -51,14 +51,14 @@ def create_cache_message_key(user1_id: int, user2_id: int) -> str:
     return f"conversation_{smaller_id}_{larger_id}"
 
 
-def create_presidents_chat_key(user_id: int) -> str:
+def create_personas_chat_key(user_id: int) -> str:
 
-    """Creates a cache key for storing the list of presidents a user has chatted with."""
+    """Creates a cache key for storing the list of personas a user has chatted with."""
 
-    return f"presidents_chat_user_{user_id}"
+    return f"personas_chat_user_{user_id}"
 
-def create_president_search_key(query: str) -> str:
+def create_persona_search_key(query: str) -> str:
 
-    """Creates a cache key for storing search results for presidents based on a query."""
+    """Creates a cache key for storing search results for personas based on a query."""
 
-    return f"president_search_{query.lower()}"
+    return f"persona_search_{query.lower()}"

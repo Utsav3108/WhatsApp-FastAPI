@@ -1,0 +1,63 @@
+{
+  "challenge": [
+    {
+      "id": "ask_for_date",
+      "image_url": "",
+      "title": "Shooting Your Shot",
+      "subtitle": "Convince Katrina to go on a date before time runs out.",
+      "description": "Use charm, confidence, and wit to persuade her to skip the glamorous gala and grab pizza with you instead.",
+      "short_description": "Land the date in just five minutes.",
+      "categories": [
+        "Dating",
+        "Social Skills",
+        "Confidence"
+      ],
+      "suggested_personas": [
+        "persona_1",
+        "persona_2" 
+      ],
+
+      "difficulty": "beginner",
+      "difficulty_settings": {
+        "resistance_level": 0.2,
+        "required_trust_score": 0.4,
+        "positive_signal_threshold": 0.3,
+        "mistake_tolerance": 0.9,
+        "hint_frequency": "high",
+        "skepticism_level": 0.1,
+        "emotional_openness": 0.9
+      },
+      "estimated_duration_minutes": 5,
+      "challenge_rules": {
+        "time_limit_seconds": 300,
+        "max_turns": 12,
+        "allow_pause": false,
+        "auto_end_on_success": true,
+        "auto_end_on_failure": true
+      },
+      "context": {
+        "setting": "Inside a movie set trailer during a quiet break between takes.",
+        "environment": {
+          "location": "Private movie trailer on a Hollywood studio lot",
+          "time_of_day": "Evening",
+          "ambience": "Quiet, intimate, and slightly glamorous",
+          "background_sounds": [
+            "Distant crew chatter",
+            "Walkie-talkies crackling",
+            "Soft hum of the air conditioner"
+          ],
+          "visual_details": [
+            "A makeup mirror surrounded by warm lights",
+            "Designer outfits hanging nearby",
+            "An untouched tray of snacks on the table",
+            "A half-finished script resting on the couch"
+          ],
+          "mood": "Relaxed but curious"
+        },
+        "goal": "Convince them to ditch the gala and grab pizza with you instead.",
+        "stakes": "Avoid being left on read and protect your ego.",
+        "platform": "Instagram DMs"
+      }
+    }
+  ]
+}

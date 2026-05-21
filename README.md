@@ -1,14 +1,14 @@
 
 # WhatsApp AI Chat Backend
 
-A FastAPI-based backend for a WhatsApp-like chat application, featuring AI-powered responses from historical presidents using Google Gemini. Now with **Socket.IO** for real-time chat, replacing the legacy FastAPI WebSocket endpoint. This project demonstrates clean architecture, modular code, and modern Python best practices.
+A FastAPI-based backend for a WhatsApp-like chat application, featuring AI-powered responses from historical personas using Google Gemini. Now with **Socket.IO** for real-time chat, replacing the legacy FastAPI WebSocket endpoint. This project demonstrates clean architecture, modular code, and modern Python best practices.
 
 
 ## Features
 
 - **FastAPI**: High-performance Python web framework for APIs
 - **Socket.IO Real-Time Chat**: Modern, robust real-time communication using Socket.IO (see `socketio_server.py`)
-- **AI Integration**: Uses Google Gemini to generate responses as historical presidents
+- **AI Integration**: Uses Google Gemini to generate responses as historical personas
 - **SQLite + SQLAlchemy**: Simple, reliable database and ORM
 - **Pydantic**: Data validation and serialization
 - **Modular Structure**: Clean separation of routes, business logic, models, and schemas
@@ -26,7 +26,7 @@ app/
   schemas.py         # Pydantic schemas
   gemini.py          # Google Gemini AI integration
    websocket.py       # (Legacy) WebSocket helpers (no longer used)
-  data.json          # Initial data for presidents
+  data.json          # Initial data for personas
    AppServices/
       connection_manageer.py # Connection manager for real-time users
 ```
@@ -115,13 +115,13 @@ See `app/socketio_server.py` for all event logic.
 
 ## API Overview
 
-- `GET /presidents/{user_id}` — List all presidents a user has chatted with
+- `GET /personas/{user_id}` — List all personas a user has chatted with
 - `GET /messages` — Get messages between users
 - **Real-time chat:** Use Socket.IO events (see above)
 
 
 ## Customization
-- Add or modify presidents in `data.json`
+- Add or modify personas in `data.json`
 - Extend AI logic in `gemini.py`
 - Add new REST routes in `routes.py`
 - Add/modify real-time events in `socketio_server.py`

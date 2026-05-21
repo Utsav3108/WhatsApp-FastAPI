@@ -68,11 +68,12 @@ async def send_message(sid, payload):
 
 
 async def handle_send_message(payload, db: Session, sid):
+
     message_in = schemas.MessageCreate(**payload)
 
     print(
         f"Received message from user {message_in.sender_id} "
-        f"to president {message_in.receiver_id}: {message_in.text}"
+        f"to persona {message_in.receiver_id}: {message_in.text}"
     )
 
     # Save user's message
@@ -103,7 +104,6 @@ async def handle_send_message(payload, db: Session, sid):
             for m in db_msgs
         ]
 
-
     # Add latest user message
     past_messages.append(new_message)
 
@@ -113,21 +113,28 @@ async def handle_send_message(payload, db: Session, sid):
         [m.model_dump() for m in past_messages]
     )
 
-    # --- Update presidents chatted cache if needed ---
-    # This cache stores the list of presidents a user has chatted with
-    presidents_chat_key = cache.create_presidents_chat_key(message.sender_id)
-    presidents_chatted = cache.retrieve_cache(presidents_chat_key)
-    if presidents_chatted is not None:
-        # Check if the receiver_id (president) is already in the cache
-        if not any(p.get('id') == message.receiver_id for p in presidents_chatted):
-            # Fetch the president info from DB
-            president = db.query(crud.models.President).filter_by(id=message.receiver_id).first()
-            if president:
-                from app.schemas import PresidentResponse
-                president_data = PresidentResponse.model_validate(president).model_dump()
-                presidents_chatted.append(president_data)
-                cache.store_cache(presidents_chat_key, presidents_chatted)
-    # If not in cache, the next API call will repopulate it as usual
+    # --- Update personas chatted cache if needed ---
+    personas_chat_key = cache.create_personas_chat_key(message.sender_id)
+    personas_chatted = cache.retrieve_cache(personas_chat_key)
+    if personas_chatted is not None:
+        if not any(p.get('id') == message.receiver_id for p in personas_chatted):
+            persona = db.query(crud.models.Persona).filter_by(id=message.receiver_id).first()
+            if persona:
+                from app.schemas import PersonaResponse
+                persona_data = PersonaResponse.model_validate(persona).model_dump()
+                personas_chatted.append(persona_data)
+                cache.store_cache(personas_chat_key, personas_chatted)
+
+    # Pass scenario_id if present
+    scenario_id = payload.get('scenario_id')
+    scenario = None
+    if scenario_id:
+        from app.services import scenario_service
+        scenario = scenario_service.get_scenario_by_id(db, scenario_id)
+
+    asyncio.create_task(
+        handle_gemini_response(message, past_messages, sid, scenario)
+    )
 
     # IMPORTANT:
     # Do not pass the current `db` session to a background task because it
@@ -139,7 +146,7 @@ async def handle_send_message(payload, db: Session, sid):
     )
 
 
-async def handle_gemini_response(message, past_messages, sid):
+async def handle_gemini_response(message, past_messages, sid, scenario=None):
     """
     Background task that uses its own independent database session.
     This avoids using a closed session and prevents connection leaks.
@@ -147,15 +154,17 @@ async def handle_gemini_response(message, past_messages, sid):
     db = SessionLocal()
 
     try:
-        # Get president info
-        president = crud.get_president_by_id(db, message.receiver_id)
+
+        # Get persona info
+        persona = crud.get_persona_by_id(db, message.receiver_id)
 
         # Generate Gemini response
         gemini_response_in = ask_gemini(
             message.text,
-            president,
+            persona,
             senderId=message.sender_id,
-            past_messages=past_messages
+            past_messages=past_messages,
+            scenario=scenario
         )
 
         # Save Gemini response

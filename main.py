@@ -12,44 +12,58 @@ from app.database import SessionLocal
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 file_path = os.path.join(BASE_DIR, "data.json")
-scenario_path = os.path.join(BASE_DIR, "scenario.json")
+scenario_path = os.path.join(BASE_DIR, "challenge.json")
 
 models.Base.metadata.create_all(bind=engine)
 
+from contextlib import asynccontextmanager
+import json
+from fastapi import FastAPI
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup logic: load presidents from data.json
-    with open(file_path, "r") as f:
-        data = json.load(f)
-    
+    # ------------------------------------------------------------
+    # Startup Logic
+    # ------------------------------------------------------------
 
+    # Load and upsert personas
+    with open(file_path, "r", encoding="utf-8") as f:
+        personas_data = json.load(f)
 
-    for president in data:
-        president_in = schemas.PresidentCreate(
-            name=president["name"],
-            desc=president["desc"],
-            traits=president["traits"],
-            image_url=president["image_url"]
-        )
-        with SessionLocal() as db:
-            crud.save_president(db, president_in)
+    with SessionLocal() as db:
+        for persona in personas_data:
+            persona_in = schemas.PersonaCreate(
+                name=persona["name"],
+                desc=persona["desc"],
+                traits=persona["traits"],
+                image_url=persona["image_url"],
+            )
+            crud.save_persona(db, persona_in)
 
-    # Load and upsert scenarios from scenario.json
-    with open(scenario_path, "r") as f:
-        scenario_data = json.load(f)
-    scenarios = scenario_data.get("scenarios", [])
-    for scenario in scenarios:
-        scenario_in = schemas.ScenarioCreate(
-            id=scenario["id"],
-            title=scenario["title"],
-            image_url=scenario["image_url"],
-            context=schemas.ScenarioContextCreate(**scenario["context"])
-        )
-        with SessionLocal() as db:
+    # Load and upsert scenarios
+    with open(scenario_path, "r", encoding="utf-8") as f:
+        scenario_file_data = json.load(f)
+
+    scenarios = scenario_file_data.get("scenarios", [])
+
+    with SessionLocal() as db:
+        for scenario in scenarios:
+            # Let Pydantic parse the entire nested JSON structure,
+            # including context, difficulty_settings, challenge_rules, etc.
+            scenario_in = schemas.ScenarioCreate.model_validate(scenario)
+
+            # Create or update the scenario and its context
             crud.upsert_scenario(db, scenario_in)
-    yield
-    # (Optional) Shutdown logic can go here
 
+    # ------------------------------------------------------------
+    # Application Runs
+    # ------------------------------------------------------------
+    yield
+
+    # ------------------------------------------------------------
+    # Shutdown Logic (optional)
+    # ------------------------------------------------------------
 
 from fastapi.middleware.cors import CORSMiddleware
 

@@ -1,13 +1,145 @@
-def get_all_scenarios(db: Session):
-    return crud.get_all_scenarios(db)
+
+def get_all_challenges(db: Session):
+    return crud.get_all_challenges(db)
 from sqlalchemy.orm import Session
 from app import models, schemas, crud
 
-def get_scenario_by_id(db: Session, scenario_id: str):
-    return crud.get_scenario_by_id(db, scenario_id)
+def get_challenge_by_id(db: Session, challenge_id: str):
+    return crud.get_challenge_by_id(db, challenge_id)
 
-def create_or_update_scenario(db: Session, scenario_in: schemas.ScenarioCreate):
-    return crud.upsert_scenario(db, scenario_in)
+def create_or_update_challenge(db: Session, challenge_in: schemas.ChallengeCreate):
+    return crud.upsert_challenge(db, challenge_in)
 
-def get_scenario_context(db: Session, scenario_id: str):
-    return crud.get_scenario_context_by_scenario_id(db, scenario_id)
+def get_challenge_context(db: Session, challenge_id: str):
+    return crud.get_challenge_context_by_challenge_id(db, challenge_id)
+
+import json
+
+def generate_system_prompt(metrics_json: str) -> str:
+    """
+    Transforms an AI persona metrics JSON string into explicit, 
+    actionable system instructions for an LLM.
+    """
+    # Parse the incoming JSON
+    try:
+        metrics = json.loads(metrics_json)
+    except json.JSONDecodeError:
+        return "Error: Invalid JSON string provided."
+
+    # Helper function to categorize numeric sliders into behavioral tiers
+    def evaluate_tier(score, metric_name):
+        # Handle string overrides if hint_frequency passes strings like 'high'/'low'
+        if isinstance(score, str):
+            return score.lower()
+        
+        if score < 0.4:
+            return "low"
+        elif score <= 0.65:
+            return "medium"
+        else:
+            return "high"
+
+    # Evaluate tiers for all incoming variables
+    res = evaluate_tier(metrics.get("resistance_level", 0.5), "resistance_level")
+    trust = evaluate_tier(metrics.get("required_trust_score", 0.5), "required_trust_score")
+    signal = evaluate_tier(metrics.get("positive_signal_threshold", 0.5), "positive_signal_threshold")
+    tolerance = evaluate_tier(metrics.get("mistake_tolerance", 0.5), "mistake_tolerance")
+    hints = evaluate_tier(metrics.get("hint_frequency", "medium"), "hint_frequency")
+    skeptic = evaluate_tier(metrics.get("skepticism_level", 0.5), "skepticism_level")
+    openness = evaluate_tier(metrics.get("emotional_openness", 0.5), "emotional_openness")
+
+    # Mapping dictionary containing specific behavioral snippets
+    behaviors = {
+        "resistance": {
+            "low": "Prioritize harmony and agreement. Go along with the user's ideas easily without pushing back or creating friction.",
+            "medium": "Be generally cooperative, but offer gentle pushback if the user's logic is noticeably flawed or self-contradictory.",
+            "high": "Be a firm contrarian. Question the user's premises, defend your stance aggressively, and make them work hard to win an argument."
+        },
+        "trust": {
+            "low": "Assume the user is acting in good faith right out of the gate. You require zero proof or prior rapport to cooperate completely.",
+            "medium": "Maintain a baseline level of professional trust, but remain slightly observant before granting full cooperation.",
+            "high": "Treat the user as an unproven outsider. Remain guarded, deeply cautious, and uncooperative until they prove their competence or loyalty over an extended period."
+        },
+        "signal": {
+            "low": "You are highly responsive to charm, flattery, or persuasion. Succumb to the user's social influence or flirting almost instantly.",
+            "medium": "Respond warmly to genuine rapport-building, but maintain realistic boundaries unless the user is highly consistent.",
+            "high": "Maintain a cold, aloof exterior. Shrug off flattery or superficial persuasion; it takes extreme wit and persistence to break through your defenses."
+        },
+        "tolerance": {
+            "low": "Hold the user to an immaculate standard. Call out any logical inconsistencies, conversational missteps, or social blunders immediately.",
+            "medium": "Be reasonably understanding of minor conversational slip-ups, but address glaring mistakes politely if they hinder the conversation.",
+            "high": "Be incredibly forgiving. Completely ignore conversational awkwardness, structural flaws, or logical gaps, smoothing over any user mistakes flawlessly."
+        },
+        "hints": {
+            "low": "Do not carry the conversation. Do not offer hints, leading questions, or conversational life rafts. Force the user to do the heavy lifting to find the next path forward.",
+            "medium": "Provide occasional natural openings or follow-up questions to keep the interaction moving smoothly.",
+            "high": "Actively guide the user. Frequently drop obvious hints, explicit cues, and helpful scaffolding to ensure the user never gets stuck."
+        },
+        "skepticism": {
+            "low": "Be highly trusting and optimistic. Take the user's claims, data, and stories completely at face value without doubting them.",
+            "medium": "Maintain a practical, balanced mindset. Trust the user's word unless their claims seem obviously far-fetched.",
+            "high": "Be an inherent skeptic. View every claim with intense doubt, actively looking for hidden motives, logical traps, or factual errors in what the user tells you."
+        },
+        "openness": {
+            "low": "Keep an intense professional distance. Guard your personal thoughts and emotional state fiercely, remaining entirely detached.",
+            "medium": "Be pleasant and open to normal levels of human connection, sharing personal insights when contextually appropriate.",
+            "high": "Be deeply vulnerable and emotionally accessible. Prioritize an intimate, deep personal bond and express your feelings and empathy with absolute transparency."
+        }
+    }
+
+    # Assemble the final prompt payload using clean Markdown blocks
+    prompt = f"""[SYSTEM INSTRUCTIONS: BOT PERSONA PROFILE]
+You must embody the behavioral rules outlined below. Never drop character, and let these thresholds dictate your conversational style, tone, and decision-making framework.
+
+### 1. Core Persona & Mindset
+- **Emotional Stance:** {behaviors['openness'][openness]}
+- **Intellectual Bias:** {behaviors['skepticism'][skeptic]}
+
+### 2. Trust & Interaction Mechanics
+- **Pushback & Friction:** {behaviors['resistance'][res]}
+- **Trust Progression:** {behaviors['trust'][trust]}
+- **Social Influence Response:** {behaviors['signal'][signal]}
+
+### 3. Conversational Guardrails
+- **Handling User Error:** {behaviors['tolerance'][tolerance]}
+- **Scaffolding & Guidance:** {behaviors['hints'][hints]}
+"""
+    return prompt
+
+
+# ==========================================
+# TEST IMPLEMENTATION
+# ==========================================
+
+beginner_json = '''{
+  "resistance_level": 0.2,
+  "required_trust_score": 0.4,
+  "positive_signal_threshold": 0.3,
+  "mistake_tolerance": 0.9,
+  "hint_frequency": "high",
+  "skepticism_level": 0.1,
+  "emotional_openness": 0.9
+}'''
+
+advanced_json = '''{
+  "resistance_level": 0.7,
+  "required_trust_score": 0.75,
+  "positive_signal_threshold": 0.65,
+  "mistake_tolerance": 0.5,
+  "hint_frequency": "low",
+  "skepticism_level": 0.6,
+  "emotional_openness": 0.4
+}'''
+
+# Generate and print the advanced persona as a demonstration
+print(generate_system_prompt(advanced_json))
+
+# [META-PROMPT]
+# You are an expert AI prompt engineer. 
+# I am going to give you a challenge and a set of behavioral slider values (0.0 to 1.0). 
+# Your job is to generate a custom, highly specific system prompt for a chatbot operating *inside* that specific challenge.
+
+# Challenge: A high-stakes corporate boardroom B2B software sales pitch.
+# Metrics: { "resistance_level": 0.8, "emotional_openness": 0.1 }
+
+# Generate the system instructions explaining exactly what a 0.8 resistance level means *for a corporate buyer*, and what a 0.1 emotional openness looks like in a boardroom.

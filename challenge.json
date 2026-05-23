@@ -13,8 +13,9 @@
         "Confidence"
       ],
       "suggested_personas": [
-        "persona_1",
-        "persona_2" 
+        1,
+        2,
+        3 
       ],
 
       "difficulty": "beginner",

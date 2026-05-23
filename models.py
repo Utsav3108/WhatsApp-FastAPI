@@ -45,7 +45,6 @@ class Persona(Base):
     traits = Column(String)
     image_url = Column(String, default="")
 
-
 class Message(Base):
     __tablename__ = "messages"
 
@@ -100,3 +99,5 @@ class Challenge(Base):
     image_url = Column(String, nullable=True)
     context = relationship("ChallengeContext", uselist=False, back_populates="challenge", cascade="all, delete-orphan")
 
+    selected_persona_id = Column(Integer, ForeignKey("personas.id"), nullable=True)  # New field for selected persona
+    selected_persona = relationship("Persona", foreign_keys=[selected_persona_id])

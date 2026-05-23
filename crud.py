@@ -163,6 +163,7 @@ def upsert_challenges(db: Session, challenge: ChallengeCreate):
         "short_description",
         "categories",
         "suggested_personas",
+        "selected_persona_id",
         "difficulty",
         "difficulty_settings",
         "estimated_duration_minutes",

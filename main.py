@@ -10,6 +10,10 @@ from app.socketio_server import sio_app
 from app import schemas, crud
 from app.database import SessionLocal
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 file_path = os.path.join(BASE_DIR, "data.json")
 challenges_path = os.path.join(BASE_DIR, "challenge.json")
@@ -69,6 +73,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(router)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],        # tighten this in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 async def root():

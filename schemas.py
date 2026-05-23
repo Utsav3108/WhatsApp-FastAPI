@@ -69,13 +69,13 @@ class ChallengeBase(BaseModel):
     description: Optional[str] = None
     short_description: Optional[str] = None
     categories: Optional[list[str]] = None
-    suggested_personas: Optional[list[str]] = None
+    suggested_personas: Optional[list[int]] = None
     difficulty: Optional[ChallengeDifficulty] = None
     difficulty_settings: Optional[dict] = None
     estimated_duration_minutes: Optional[int] = None
     challenge_rules: Optional[dict] = None
     image_url: Optional[str] = None
-
+    selected_persona_id: Optional[int] = None  # New field for selected persona ID
 
 class ChallengeCreate(ChallengeBase):
     id: str

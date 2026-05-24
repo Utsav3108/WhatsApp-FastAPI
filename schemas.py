@@ -98,7 +98,7 @@ class ChallengeResponse(ChallengeBase):
 
 class ChallengeStartRequest(BaseModel):
     challenge_id: str
-    persona_id: int 
+    persona_id: Optional[int] = None 
     user_id: int
 
 class ChallengeStartResponse(BaseModel):

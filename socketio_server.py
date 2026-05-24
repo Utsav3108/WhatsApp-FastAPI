@@ -240,6 +240,8 @@ async def handle_gemini_response(message, past_messages, sid, challenge=None):
             gemini_message
         )
 
+        validated_gemini_response.challenge_session_id = message.challenge_session_id
+
         # Update in-memory history
         past_messages.append(validated_gemini_response)
 

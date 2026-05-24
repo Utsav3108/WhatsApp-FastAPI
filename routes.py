@@ -82,17 +82,29 @@ def start_challenge(
 ):
 
     try:
-    
-        persona = crud.get_persona_by_id(
-            db,
-            request.persona_id
-        )
 
-        if not persona:
-            raise ValueError(
-                f"Persona with ID {request.persona_id} not found.",
+        challenge = None
 
-            )
+        if request.challenge_id is None:
+            raise ValueError("challenge_id is required to start a challenge.")
+        
+        else :
+            challenge = crud.get_challenge_by_id(db, request.challenge_id)
+
+            if challenge.selected_persona:
+                pass
+
+            elif request.persona_id:
+                persona = crud.get_persona_by_id(db, request.persona_id)
+
+                challenge = challenge_service.assign_persona_to_challenge(
+                    db,
+                    request.challenge_id,
+                    persona.id
+                )
+            else:
+                raise ValueError("No persona assigned to this challenge. Please provide a persona_id to assign.")
+   
 
         existing_session = crud.get_active_session(
             db,
@@ -110,11 +122,7 @@ def start_challenge(
                 expires_at=existing_session.expires_at
             )
 
-        challenge = challenge_service.assign_persona_to_challenge(
-            db,
-            request.challenge_id,
-            persona.id
-        )
+
 
         storyline : StorylineResponse = gemini.create_storyline(challenge)
 
@@ -122,7 +130,7 @@ def start_challenge(
             db=db,
             user_id=request.user_id,
             challenge_id=challenge.id,
-            persona_id=persona.id,
+            persona_id=challenge.selected_persona_id,
             storyline=storyline.storyline
         )
 

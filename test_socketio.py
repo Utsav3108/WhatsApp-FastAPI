@@ -35,7 +35,7 @@ import socketio
 
 sio = socketio.AsyncClient()
 
-CHALLENGE_SESSION_ID = 4
+CHALLENGE_SESSION_ID = 7
 SENDER_ID = 1
 RECEIVER_ID = 2
 

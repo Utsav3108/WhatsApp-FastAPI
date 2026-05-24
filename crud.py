@@ -136,6 +136,7 @@ def _create_challenge_model(challenge: ChallengeCreate) -> Challenge:
         difficulty_settings=challenge.difficulty_settings,
         estimated_duration_minutes=challenge.estimated_duration_minutes,
         challenge_rules=challenge.challenge_rules,
+        selected_persona_id=challenge.selected_persona_id
     )
 
 

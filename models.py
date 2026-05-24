@@ -56,7 +56,11 @@ class Message(Base):
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     image_object_name = Column(String, nullable=True)
 
-
+    challenge_session_id = Column(
+        Integer,
+        ForeignKey("challenge_sessions.id"),
+        nullable=True
+)
 
 
 
@@ -101,3 +105,70 @@ class Challenge(Base):
 
     selected_persona_id = Column(Integer, ForeignKey("personas.id"), nullable=True)  # New field for selected persona
     selected_persona = relationship("Persona", foreign_keys=[selected_persona_id])
+
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+
+from app.database import Base
+
+class ChallengeSession(Base):
+
+    __tablename__ = "challenge_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("personas.id"),
+        nullable=False
+    )
+
+    challenge_id = Column(
+        String,
+        ForeignKey("challenges.id"),
+        nullable=False
+    )
+
+    persona_id = Column(
+        Integer,
+        ForeignKey("personas.id"),
+        nullable=False
+    )
+
+    status = Column(
+        String,
+        nullable=False,
+        default="active"
+    )
+
+    result_reason = Column(String, nullable=True)
+
+    storyline = Column(Text, nullable=True)
+
+    started_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    expires_at = Column(
+        DateTime(timezone=True),
+        nullable=False
+    )
+
+    completed_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    challenge = relationship("Challenge")
+
+    persona = relationship(
+        "Persona",
+        foreign_keys=[persona_id]
+    )
+
+    user = relationship(
+        "Persona",
+        foreign_keys=[user_id]
+    )

@@ -139,6 +139,17 @@ def _create_challenge_model(challenge: ChallengeCreate) -> Challenge:
     )
 
 
+def update_challenge(
+    db: Session,
+    challenge: Challenge
+):
+    merged_challenge = db.merge(challenge)
+
+    db.commit()
+
+    db.refresh(merged_challenge)
+
+    return merged_challenge
 
 def upsert_challenges(db: Session, challenge: ChallengeCreate):
     """
@@ -241,3 +252,72 @@ def upsert_challenges(db: Session, challenge: ChallengeCreate):
         db.refresh(db_challenge)
 
     return db_challenge
+
+
+
+# ChallengeSession CRUD
+from datetime import datetime, timedelta
+
+from sqlalchemy.orm import Session
+
+from app.models import ChallengeSession
+
+
+CHALLENGE_DURATION_MINUTES = 3
+
+
+def get_active_session(
+    db: Session,
+    user_id: int,
+    challenge_id: str
+):
+
+    return db.query(ChallengeSession).filter(
+        ChallengeSession.user_id == user_id,
+        ChallengeSession.challenge_id == challenge_id,
+        ChallengeSession.status == "active"
+    ).first()
+
+
+def create_challenge_session(
+    db: Session,
+    user_id: int,
+    challenge_id: str,
+    persona_id: int,
+    storyline: str
+):
+
+    expires_at = datetime.utcnow() + timedelta(
+        minutes=CHALLENGE_DURATION_MINUTES
+    )
+
+    session = ChallengeSession(
+        user_id=user_id,
+        challenge_id=challenge_id,
+        persona_id=persona_id,
+        storyline=storyline,
+        expires_at=expires_at
+    )
+
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    return session
+
+
+def complete_session(
+    db: Session,
+    session: ChallengeSession,
+    status: str,
+    reason: str
+):
+
+    session.status = status
+    session.result_reason = reason
+    session.completed_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(session)
+
+    return session

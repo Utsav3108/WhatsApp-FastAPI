@@ -1,7 +1,10 @@
 
-from pydantic import BaseModel
+import datetime
+
+from pydantic import BaseModel, ConfigDict
 from typing import Any, List, Optional
 
+from pydantic import BaseModel, Field
 
 class PersonaCreate(BaseModel):
     name: str
@@ -24,7 +27,7 @@ class MessageCreate(BaseModel):
     receiver_id: int
     text: str
     image_object_name: Optional[str] = None
-    scenario_id: Optional[str] = None
+    challenge_session_id: Optional[int] = None
 
 class MessageResponse(MessageCreate):
     id: int
@@ -64,6 +67,10 @@ class ChallengeContextResponse(ChallengeContextBase):
 
 
 class ChallengeBase(BaseModel):
+
+    model_config = ConfigDict(from_attributes=True)
+
+
     title: str
     subtitle: Optional[str] = None
     description: Optional[str] = None
@@ -89,7 +96,17 @@ class ChallengeResponse(ChallengeBase):
     class Config:
         from_attributes = True
 
-from pydantic import BaseModel, Field
+class ChallengeStartRequest(BaseModel):
+    challenge_id: str
+    persona_id: int 
+    user_id: int
+
+class ChallengeStartResponse(BaseModel):
+    message: str
+    challenge_session_id: Optional[int] = None
+    intro: Optional[StorylineResponse] = None
+    status: Optional[str] = None
+    expires_at: Optional[str] = None
 
 # Storyline schemas
 class StorylineRequest(BaseModel):

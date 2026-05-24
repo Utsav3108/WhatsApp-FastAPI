@@ -1,3 +1,4 @@
+from fastapi import Depends
 import socketio
 import asyncio
 from sqlalchemy.orm import Session
@@ -7,7 +8,7 @@ import app.schemas as schemas
 import app.crud as crud
 import app.cache as cache
 from app.gemini import ask_gemini
-from app.database import SessionLocal
+from app.database import SessionLocal, get_db
 
 # Socket.IO server
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
@@ -32,14 +33,35 @@ def disconnect(sid):
     print(f"Socket.IO: {sid} disconnected")
     data_user_map.pop(sid, None)
 
-
 @sio.event
 async def join(sid, data):
     user_id = data.get("user_id")
     if user_id is not None:
         data_user_map[sid] = user_id
         await sio.save_session(sid, {"user_id": user_id})
-        print(f"User {user_id} joined with sid {sid}")
+        # print(f"User {user_id} joined with sid {sid}")
+
+
+@sio.event
+async def join_challenge(sid, data):
+
+    print(f"Received join_challenge event with data: {data}")
+
+    challenge_session_id = data.get(
+        "challenge_session_id"
+    )
+
+    if not challenge_session_id:
+        print("no challenge_session_id provided in join_challenge event")  
+        return
+    
+    room = f"challenge:{challenge_session_id}"
+
+    print(f"Joining room {room} for sid {sid}")
+
+    await sio.enter_room(sid, room)
+
+    print(f"{sid} joined {room}")
 
 
 # --------------------------------------------------------------------------
@@ -76,9 +98,22 @@ async def handle_send_message(payload, db: Session, sid):
         f"to persona {message_in.receiver_id}: {message_in.text}"
     )
 
+    challenge_session = db.query(
+    crud.models.ChallengeSession
+    ).filter(
+    crud.models.ChallengeSession.id
+    == message_in.challenge_session_id
+    ).first()
+
+    if not challenge_session:
+        # print(f"Challenge session {message_in.challenge_session_id} not found.")
+        return
+
     # Save user's message
     message = crud.create_message(db, message_in)
     new_message = schemas.MessageResponse.model_validate(message)
+
+    # print(f"Saved user message with ID {message.id} to DB")
 
     # Load cached or DB message history
     key = cache.create_cache_message_key(
@@ -104,6 +139,8 @@ async def handle_send_message(payload, db: Session, sid):
             for m in db_msgs
         ]
 
+    # print(f"Loaded {len(past_messages)} past messages between user {message.sender_id} and persona {message.receiver_id}")
+
     # Add latest user message
     past_messages.append(new_message)
 
@@ -126,31 +163,60 @@ async def handle_send_message(payload, db: Session, sid):
                 cache.store_cache(personas_chat_key, personas_chatted)
 
     # Pass scenario_id if present
-    scenario_id = payload.get('scenario_id')
-    scenario = None
-    if scenario_id:
-        from app.services import scenario_service
-        scenario = scenario_service.get_scenario_by_id(db, scenario_id)
 
-    asyncio.create_task(
-        handle_gemini_response(message, past_messages, sid, scenario)
-    )
+    # print(f"Message is part of challenge session {message_in.challenge_session_id}")
 
+    challenge = None
+
+    if challenge_session:
+        from app.services import challenge_service
+        challenge = challenge_service.get_challenge_by_id(db, challenge_session.challenge_id)
+
+        # print(f"Challenge session {challenge_session.id} is associated with challenge {challenge.id if challenge else 'N/A'}")
+
+    # print(f"Challenge session {challenge_session.id} is associated with challenge {challenge.id if challenge else 'N/A'}")
+
+    from datetime import datetime
+
+    if datetime.utcnow() >= challenge_session.expires_at:
+
+        challenge_session.status = "lost_timeout"
+
+        db.commit()
+
+        await sio.emit(
+            "challenge_completed",
+            {
+                "status": "lost_timeout",
+                "message": "Time is up."
+            },
+            room=f"challenge:{challenge_session.id}"
+        )
+
+        # print(f"Challenge session {challenge_session.id} has expired. Marked as lost_timeout.")
+        return
+    
+
+    # print(f"Scheduling background task to handle Gemini response for message {message.id} in challenge session {challenge_session.id}")
     # IMPORTANT:
     # Do not pass the current `db` session to a background task because it
     # will be closed when this event handler finishes.
     #
     # Instead, create a fresh DB session inside the background task.
     asyncio.create_task(
-        handle_gemini_response(message, past_messages, sid)
+        handle_gemini_response(message, past_messages, sid, challenge)
     )
 
 
-async def handle_gemini_response(message, past_messages, sid, scenario=None):
+async def handle_gemini_response(message, past_messages, sid, challenge=None):
     """
     Background task that uses its own independent database session.
     This avoids using a closed session and prevents connection leaks.
     """
+
+    print("""\n=== Handling Gemini Response in Background Task ===""")
+
+    # Create a new DB session for this background task
     db = SessionLocal()
 
     try:
@@ -164,7 +230,7 @@ async def handle_gemini_response(message, past_messages, sid, scenario=None):
             persona,
             senderId=message.sender_id,
             past_messages=past_messages,
-            scenario=scenario
+            challenge=challenge
         )
 
         # Save Gemini response
@@ -176,6 +242,8 @@ async def handle_gemini_response(message, past_messages, sid, scenario=None):
 
         # Update in-memory history
         past_messages.append(validated_gemini_response)
+
+        print(f"Gemini response {gemini_message.text}")
 
         # Update cache
         key = cache.create_cache_message_key(
@@ -192,7 +260,7 @@ async def handle_gemini_response(message, past_messages, sid, scenario=None):
         await sio.emit(
             "receive_message",
             validated_gemini_response.model_dump_json(),
-            room=sid
+            room=f"challenge:{message.challenge_session_id}"
         )
 
     except Exception as e:
@@ -202,3 +270,4 @@ async def handle_gemini_response(message, past_messages, sid, scenario=None):
     finally:
         # Always release the connection back to the pool
         db.close()
+

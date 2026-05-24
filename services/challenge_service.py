@@ -5,13 +5,26 @@ from sqlalchemy.orm import Session
 from app import models, schemas, crud
 
 def get_challenge_by_id(db: Session, challenge_id: str):
-    return crud.get_challenge_by_id(db, challenge_id)
+
+    result = crud.get_challenge_by_id(db, challenge_id)
+
+    return schemas.ChallengeResponse.model_validate(result) if result else None
 
 def create_or_update_challenge(db: Session, challenge_in: schemas.ChallengeCreate):
     return crud.upsert_challenges(db, challenge_in)
 
 def get_challenge_context(db: Session, challenge_id: str):
     return crud.get_challenge_context_by_challenge_id(db, challenge_id)
+
+def assign_persona_to_challenge(db: Session, challenge_id: str, persona_id: int):
+    challenge = crud.get_challenge_by_id(db, challenge_id)
+    if not challenge:
+        raise ValueError(f"Challenge with ID {challenge_id} not found.")
+    
+    challenge.selected_persona_id = persona_id
+
+    return crud.update_challenge(db, challenge)
+
 
 import json
 

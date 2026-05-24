@@ -1,6 +1,6 @@
 
 # --- Storyline Endpoint ---
-from app.schemas import StorylineRequest, StorylineResponse
+from app.schemas import ChallengeStartResponse, StorylineRequest, StorylineResponse
 from fastapi import Body
 
 from app import gemini
@@ -72,11 +72,71 @@ def create_challenge(challenge_in: schemas.ChallengeCreate, db: Session = Depend
 
 
 
-@router.post("/create_storyline", response_model=StorylineResponse)
-def create_storyline(request: StorylineRequest = Body(...), db: Session = Depends(get_db)):
-    challenge = crud.get_challenge_by_id(db, request.challenge_id)
-    if not challenge:
-        return {"storyline": "Challenge not found.", "call_to_action": "Please provide a valid challenge_id."}
-    return gemini.create_storyline(challenge)
+@router.post(
+    "/start_challenge",
+    response_model=schemas.ChallengeStartResponse
+)
+def start_challenge(
+    request: schemas.ChallengeStartRequest = Body(...),
+    db: Session = Depends(get_db)
+):
 
+    try:
+    
+        persona = crud.get_persona_by_id(
+            db,
+            request.persona_id
+        )
 
+        if not persona:
+            raise ValueError(
+                f"Persona with ID {request.persona_id} not found.",
+
+            )
+
+        existing_session = crud.get_active_session(
+            db,
+            request.user_id,
+            request.challenge_id
+        )
+
+        # Resume existing challenge
+        if existing_session:
+
+            return schemas.ChallengeStartResponse(
+                message="Challenge resumed successfully.",
+                challenge_session_id=existing_session.id,
+                intro=existing_session.storyline,
+                expires_at=existing_session.expires_at
+            )
+
+        challenge = challenge_service.assign_persona_to_challenge(
+            db,
+            request.challenge_id,
+            persona.id
+        )
+
+        storyline : StorylineResponse = gemini.create_storyline(challenge)
+
+        session = crud.create_challenge_session(
+            db=db,
+            user_id=request.user_id,
+            challenge_id=challenge.id,
+            persona_id=persona.id,
+            storyline=storyline.storyline
+        )
+
+        
+
+        return schemas.ChallengeStartResponse(
+            message=f"Challenge {challenge.title} started successfully.",
+            challenge_session_id=session.id,    
+            intro=storyline,
+            status=session.status,
+            expires_at=session.expires_at.isoformat()
+        )
+
+    except ValueError as ve:
+        return ChallengeStartResponse(
+            message=str(ve)
+        )

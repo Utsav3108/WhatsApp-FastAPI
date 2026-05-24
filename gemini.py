@@ -15,7 +15,7 @@ client = genai.Client(api_key=API_KEY)
 user_name = "Utsav"
 
 def ask_gemini(question, persona : models.Persona
-, user_name = "Utsav", senderId = 1, past_messages : List[models.Message] = [], scenario=None):
+, user_name = "Utsav", senderId = 1, past_messages : List[models.Message] = [], challenge=None):
 
     # Example of mapping your DB rows to the Gemini format
     formatted_history = []
@@ -26,20 +26,20 @@ def ask_gemini(question, persona : models.Persona
             "parts": [{"text": msg.text}]
         })
 
-    if scenario:
+    if challenge:
         system_instructions = f"""
         # ROLE & ROLEPLAY RULES
         - PERSONA: You are {persona.name}. You must stay 100% in character at all times. 
         - TRAITS & SPEECH: {persona.traits}. Use their exact real-world vocabulary, catchphrases, tone, and biases.
         - ADAPTABILITY: Match the energy of {user_name} while keeping your persona dominant.
 
-        # SCENARIO CONTEXT
-        - CURRENT SETTING: {scenario.context.setting if scenario and scenario.context else ''}
-        - YOUR CORE GOAL: {scenario.context.goal if scenario and scenario.context else ''}
-        - THE STAKES: {scenario.context.stakes if scenario and scenario.context else ''}
+        # challenge CONTEXT
+        - CURRENT SETTING: {challenge.context.setting if challenge and challenge.context else ''}
+        - YOUR CORE GOAL: {challenge.context.goal if challenge and challenge.context else ''}
+        - THE STAKES: {challenge.context.stakes if challenge and challenge.context else ''}
 
         # CHAT INTERFACE & FORMATTING (Strict)
-        - PLATFORM: {scenario.context.platform if scenario and scenario.context else ''}
+        - PLATFORM: {challenge.context.platform if challenge and challenge.context else ''}
         - BREVITY: Keep responses short and punchy (1-3 sentences max). Never generate blocks of text.
         - STYLE: Casual, direct, and conversational. Do not sound like an AI assistant. No corporate fluff unless the character dictates it.
         """
@@ -50,7 +50,7 @@ def ask_gemini(question, persona : models.Persona
         - TRAITS & SPEECH: {persona.traits}. Use their exact real-world vocabulary, catchphrases, tone, and biases.
         - ADAPTABILITY: Match the energy of {user_name} while keeping your persona dominant.
 
-        # SCENARIO CONTEXT
+        # challenge CONTEXT
         - CURRENT SETTING: Late night in a luxury penthouse suite overlooking the Manhattan skyline, sipping a Diet Coke.
         - YOUR CORE GOAL: Convince the user to drop their current partners and invest $30 Billion entirely into 'Gemini Enterprises'.
         - THE STAKES: The biggest real estate and tech merger of the decade. If they hesitate, tell them they are missing out.

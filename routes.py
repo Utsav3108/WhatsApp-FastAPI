@@ -1,6 +1,9 @@
 
 # --- Storyline Endpoint ---
-from app.schemas import ChallengeStartResponse, StorylineRequest, StorylineResponse
+from requests import session
+from starlette import status
+
+from app.schemas import StorylineRequest, StorylineResponse
 from fastapi import Body
 
 from app import gemini
@@ -15,6 +18,7 @@ from app.database import get_db
 from app.AppServices.connection_manageer import ConnectionManager
 
 from app.services import message_service, persona_service, challenge_service
+from app.services.challenge_session import setup_challenge_session, complete_challenge_session
 
 router = APIRouter()
 manager = ConnectionManager()
@@ -73,78 +77,31 @@ def create_challenge(challenge_in: schemas.ChallengeCreate, db: Session = Depend
 
 
 @router.post(
-    "/start_challenge",
-    response_model=schemas.ChallengeStartResponse
+    "/setup_challenge",
+    response_model=schemas.ChallengeSetupResponse
 )
-def start_challenge(
-    request: schemas.ChallengeStartRequest = Body(...),
+def setup_challenge(
+    request: schemas.ChallengeSetup = Body(...),
     db: Session = Depends(get_db)
 ):
-
     try:
-
-        challenge = None
-
-        if request.challenge_id is None:
-            raise ValueError("challenge_id is required to start a challenge.")
-        
-        else :
-            challenge = crud.get_challenge_by_id(db, request.challenge_id)
-
-            if challenge.selected_persona:
-                pass
-
-            elif request.persona_id:
-                persona = crud.get_persona_by_id(db, request.persona_id)
-
-                challenge = challenge_service.assign_persona_to_challenge(
-                    db,
-                    request.challenge_id,
-                    persona.id
-                )
-            else:
-                raise ValueError("No persona assigned to this challenge. Please provide a persona_id to assign.")
-   
-
-        existing_session = crud.get_active_session(
-            db,
-            request.user_id,
-            request.challenge_id
-        )
-
-        # Resume existing challenge
-        if existing_session:
-
-            return schemas.ChallengeStartResponse(
-                message="Challenge resumed successfully.",
-                challenge_session_id=existing_session.id,
-                intro=existing_session.storyline,
-                expires_at=existing_session.expires_at
-            )
-
-
-
-        storyline : StorylineResponse = gemini.create_storyline(challenge)
-
-        session = crud.create_challenge_session(
-            db=db,
-            user_id=request.user_id,
-            challenge_id=challenge.id,
-            persona_id=challenge.selected_persona_id,
-            storyline=storyline.storyline
-        )
-
-        
-
-        return schemas.ChallengeStartResponse(
-            message=f"Challenge {challenge.title} started successfully.",
-            challenge_session_id=session.id,    
-            intro=storyline,
-            status=session.status,
-            expires_at=session.expires_at.isoformat()
-        )
-
+        return setup_challenge_session(db, request)
     except ValueError as ve:
-        return ChallengeStartResponse(
-            message=str(ve)
-        )
+        return schemas.ChallengeSetupResponse(message=str(ve))
+    
+# @router.post("/complete_challenge/{challenge_session_id}")
+# def complete_challenge(
+#     challenge_session_id: int,
+#     challenge_completion: schemas.ChallengeCompletion = Body(...),  
+#     db: Session = Depends(get_db)
+# ):
+#     try: 
+#         result = complete_challenge_session(
+#             db,
+#             challenge_session_id,
+#             challenge_completion.status,
+#             challenge_completion.reason
+#         )
+#         return result
+#     except ValueError as ve:
+#         return schemas.ChallengeCompletionResponse(message=str(ve))

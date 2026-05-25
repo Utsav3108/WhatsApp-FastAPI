@@ -8,7 +8,9 @@ import app.schemas as schemas
 import app.crud as crud
 import app.cache as cache
 from app.gemini import ask_gemini
-from app.database import SessionLocal, get_db
+from app.database import SessionLocal
+from app.services import challenge_session
+from app.schemas import ChallengeCompletion
 
 # Socket.IO server
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
@@ -63,6 +65,37 @@ async def join_challenge(sid, data):
 
     print(f"{sid} joined {room}")
 
+
+@sio.event
+async def complete_challenge(sid, data):
+
+    print(f"Received complete_challenge event with data: {data}")
+
+    session_details = schemas.ChallengeCompletion.model_validate(data)
+
+    if not session_details.challenge_session_id:
+        print("no challenge_session_id provided in complete_challenge event")  
+        return
+    
+    db = SessionLocal()
+
+    try:
+        result = challenge_session.complete_challenge_session(
+            db,
+            challenge_session_id=session_details.challenge_session_id,
+            challenge_details=session_details
+        )
+
+        room = f"challenge:{session_details.challenge_session_id}"
+        sio.leave_room(sid, room)
+
+    except Exception as e:
+        db.rollback()
+        print(f"Error in complete_challenge event: {e}")
+        raise
+
+    finally:
+        db.close()
 
 # --------------------------------------------------------------------------
 # Message Events
@@ -176,25 +209,25 @@ async def handle_send_message(payload, db: Session, sid):
 
     # print(f"Challenge session {challenge_session.id} is associated with challenge {challenge.id if challenge else 'N/A'}")
 
-    from datetime import datetime
+    # from datetime import datetime
 
-    if datetime.utcnow() >= challenge_session.expires_at:
+    # if datetime.utcnow() >= challenge_session.expires_at:
 
-        challenge_session.status = "lost_timeout"
+    #     challenge_session.status = "lost_timeout"
 
-        db.commit()
+    #     db.commit()
 
-        await sio.emit(
-            "challenge_completed",
-            {
-                "status": "lost_timeout",
-                "message": "Time is up."
-            },
-            room=f"challenge:{challenge_session.id}"
-        )
+    #     await sio.emit(
+    #         "challenge_completed",
+    #         {
+    #             "status": "lost_timeout",
+    #             "message": "Time is up."
+    #         },
+    #         room=f"challenge:{challenge_session.id}"
+    #     )
 
-        # print(f"Challenge session {challenge_session.id} has expired. Marked as lost_timeout.")
-        return
+    #     # print(f"Challenge session {challenge_session.id} has expired. Marked as lost_timeout.")
+    #     return
     
 
     # print(f"Scheduling background task to handle Gemini response for message {message.id} in challenge session {challenge_session.id}")

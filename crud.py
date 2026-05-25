@@ -263,10 +263,6 @@ from sqlalchemy.orm import Session
 
 from app.models import ChallengeSession
 
-
-CHALLENGE_DURATION_MINUTES = 3
-
-
 def get_active_session(
     db: Session,
     user_id: int,
@@ -288,16 +284,11 @@ def create_challenge_session(
     storyline: str
 ):
 
-    expires_at = datetime.utcnow() + timedelta(
-        minutes=CHALLENGE_DURATION_MINUTES
-    )
-
     session = ChallengeSession(
         user_id=user_id,
         challenge_id=challenge_id,
         persona_id=persona_id,
-        storyline=storyline,
-        expires_at=expires_at
+        storyline=storyline
     )
 
     db.add(session)

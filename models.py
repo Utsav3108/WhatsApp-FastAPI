@@ -151,11 +151,6 @@ class ChallengeSession(Base):
         server_default=func.now()
     )
 
-    expires_at = Column(
-        DateTime(timezone=True),
-        nullable=False
-    )
-
     completed_at = Column(
         DateTime(timezone=True),
         nullable=True

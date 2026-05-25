@@ -6,6 +6,8 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
+from app import enums
+
 class PersonaCreate(BaseModel):
     name: str
     desc: str
@@ -96,17 +98,32 @@ class ChallengeResponse(ChallengeBase):
     class Config:
         from_attributes = True
 
-class ChallengeStartRequest(BaseModel):
+class ChallengeSetup(BaseModel):
     challenge_id: str
     persona_id: Optional[int] = None 
     user_id: int
 
-class ChallengeStartResponse(BaseModel):
+class ChallengeSetupResponse(BaseModel):
     message: str
     challenge_session_id: Optional[int] = None
     intro: Optional[StorylineResponse] = None
-    status: Optional[str] = None
-    expires_at: Optional[str] = None
+    status: Optional[enums.ChallengeResult] = None
+    total_duration_minutes: Optional[int] = None
+    
+
+class ChallengeCompletion(BaseModel):
+    reason: Optional[str] = None  
+    challenge_status: enums.ChallengeResult
+    challenge_session_id: int
+    user_id: int
+    challenge_id: int
+
+class ChallengeCompletionResponse(BaseModel):
+    message : str
+    result_reason: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 # Storyline schemas
 class StorylineRequest(BaseModel):

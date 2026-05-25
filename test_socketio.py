@@ -1,94 +1,94 @@
-# import asyncio
-# import socketio
-
-# sio = socketio.AsyncClient()
-
-# @sio.event
-# async def connect():
-#     print("Connected to server")
-#     # 1. Join after connecting
-#     await sio.emit('join', {'user_id': 1})
-
-# @sio.on('receive_message')
-# async def on_message(data):
-#     print(f"Received from Gemini: {data}")
-
-# async def main():
-#     await sio.connect('http://localhost:8000')
-    
-#     # 2. Send a message
-#     payload = {
-#         "sender_id": 1, 
-#         "receiver_id": 2, 
-#         "text": "Tell me a joke"
-#     }
-#     await sio.emit('send_message', payload)
-    
-#     # Keep the connection alive to wait for Gemini's response
-#     await sio.wait()
-
-# if __name__ == '__main__':
-#     asyncio.run(main())
-
 import asyncio
 import socketio
+from datetime import datetime
 
 sio = socketio.AsyncClient()
 
-CHALLENGE_SESSION_ID = 7
+CHALLENGE_SESSION_ID = 1
+CHALLENGE_ID = 'one_night_stand_10'
 SENDER_ID = 1
-RECEIVER_ID = 2
+RECEIVER_ID = 11
+
+# 5 minutes
+CHALLENGE_DURATION_SECONDS = 300
+
+challenge_completed = False
+
+
+# -------------------------------------------------------------------
+# CONNECTION EVENTS
+# -------------------------------------------------------------------
 
 @sio.event
 async def connect():
+
     print("Connected to server")
 
-    # Old join event
-    await sio.emit('join', {
-        'user_id': SENDER_ID
-    })
+    # Associate socket with user
+    await sio.emit(
+        'join',
+        {
+            'user_id': SENDER_ID
+        }
+    )
 
-    # Challenge session join
-    await sio.emit('join_challenge', {
-        'challenge_session_id': CHALLENGE_SESSION_ID
-    })
+    # Join challenge room
+    await sio.emit(
+        'join_challenge',
+        {
+            'challenge_session_id': CHALLENGE_SESSION_ID
+        }
+    )
 
-    print("Joined challenge session")
+    print(f"Joined challenge session {CHALLENGE_SESSION_ID}")
 
-    # Optional: request sync after join
-    await sio.emit('request_session_sync', {
-        'challenge_session_id': CHALLENGE_SESSION_ID
-    })
+    # Request session sync
+    await sio.emit(
+        'request_session_sync',
+        {
+            'challenge_session_id': CHALLENGE_SESSION_ID
+        }
+    )
 
-    # Send first challenge message
-    await sio.emit('send_message', {
-        'challenge_session_id': CHALLENGE_SESSION_ID,
-        'text': 'Hello there',
-        "sender_id": SENDER_ID,
-      "receiver_id": RECEIVER_ID,
-    })
-
+    # Send first message
+    await sio.emit(
+        'send_message',
+        {
+            'challenge_session_id': CHALLENGE_SESSION_ID,
+            'sender_id': SENDER_ID,
+            'receiver_id': RECEIVER_ID,
+            'text': 'Hello there'
+        }
+    )
 
 
 @sio.event
 async def disconnect():
+
     print("Disconnected from server")
 
 
+# -------------------------------------------------------------------
+# RECEIVE EVENTS
+# -------------------------------------------------------------------
+
 @sio.on('receive_message')
 async def on_receive_message(data):
+
     print("\n=== RECEIVE MESSAGE ===")
     print(data)
 
 
 @sio.on('typing')
 async def on_typing(data):
+
     print("\n=== TYPING EVENT ===")
     print(data)
 
 
 @sio.on('session_sync')
 async def on_session_sync(data):
+
     print("\n=== SESSION SYNC ===")
     print(data)
 
@@ -101,6 +101,11 @@ async def on_session_sync(data):
 
 @sio.on('challenge_completed')
 async def on_challenge_completed(data):
+
+    global challenge_completed
+
+    challenge_completed = True
+
     print("\n=== CHALLENGE COMPLETED ===")
     print(data)
 
@@ -108,17 +113,24 @@ async def on_challenge_completed(data):
 
     print(f"Challenge Result: {status}")
 
+    # Optional disconnect after completion
+    await asyncio.sleep(2)
+
+    await sio.disconnect()
+
 
 @sio.on('error')
 async def on_error(data):
+
     print("\n=== ERROR ===")
     print(data)
 
 
+# -------------------------------------------------------------------
+# TEST MESSAGE SIMULATION
+# -------------------------------------------------------------------
+
 async def send_test_messages():
-    """
-    Simulates user sending messages continuously
-    """
 
     await asyncio.sleep(5)
 
@@ -130,12 +142,15 @@ async def send_test_messages():
 
     for text in messages:
 
+        if challenge_completed:
+            return
+
         payload = {
-        'challenge_session_id': CHALLENGE_SESSION_ID,
-        'text': text,
-        "sender_id": SENDER_ID,
-      "receiver_id": RECEIVER_ID,
-    }
+            'challenge_session_id': CHALLENGE_SESSION_ID,
+            'sender_id': SENDER_ID,
+            'receiver_id': RECEIVER_ID,
+            'text': text
+        }
 
         print(f"\nSending: {text}")
 
@@ -144,21 +159,66 @@ async def send_test_messages():
         await asyncio.sleep(8)
 
 
+# -------------------------------------------------------------------
+# HEARTBEAT
+# -------------------------------------------------------------------
+
 async def heartbeat():
-    """
-    Optional heartbeat ping
-    """
 
     while True:
 
-        await sio.emit('ping', {
-            'challenge_session_id': CHALLENGE_SESSION_ID
-        })
+        if challenge_completed:
+            return
+
+        await sio.emit(
+            'ping',
+            {
+                'challenge_session_id': CHALLENGE_SESSION_ID
+            }
+        )
 
         print("Ping sent")
 
         await asyncio.sleep(20)
 
+
+# -------------------------------------------------------------------
+# AUTO COMPLETE CHALLENGE AFTER 5 MINUTES
+# -------------------------------------------------------------------
+
+async def auto_complete_challenge():
+
+    global challenge_completed
+
+    print(
+        f"\nChallenge timer started "
+        f"({CHALLENGE_DURATION_SECONDS} seconds)"
+    )
+
+    await asyncio.sleep(CHALLENGE_DURATION_SECONDS)
+
+    if challenge_completed:
+        return
+
+    print("\nEmitting complete_challenge event")
+
+    payload = {
+        'challenge_session_id': CHALLENGE_SESSION_ID,
+        'status': 'lost_timeout',
+        'reason': 'Challenge time expired',
+        'user_id': SENDER_ID,
+        'challenge_id': CHALLENGE_ID
+    }
+
+    await sio.emit(
+        'complete_challenge',
+        payload
+    )
+
+
+# -------------------------------------------------------------------
+# MAIN
+# -------------------------------------------------------------------
 
 async def main():
 
@@ -171,8 +231,11 @@ async def main():
 
     asyncio.create_task(heartbeat())
 
+    asyncio.create_task(auto_complete_challenge())
+
     await sio.wait()
 
 
 if __name__ == '__main__':
+
     asyncio.run(main())

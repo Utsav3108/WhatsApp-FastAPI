@@ -3,6 +3,16 @@ from app.schemas import PersonaResponse
 from sqlalchemy.orm import Session
 from typing import List
 
+
+def get_persona_by_id(db: Session, persona_id: int):
+    result = crud.get_persona_by_id(db, persona_id)
+
+    if result:
+        return PersonaResponse.model_validate(result)
+    else: 
+        raise ValueError(f"Persona with ID {persona_id} not found.")
+
+
 def get_personas_user_chatted_with(db, user_id):
 
     """Fetches the list of personas a user has chatted with.

@@ -1,4 +1,6 @@
+
 from sqlalchemy.orm import Session
+from app.crud_challenge_attempt import create_challenge_attempt
 
 from app import crud, schemas
 from app.services import persona_service, challenge_service
@@ -48,11 +50,13 @@ def setup_challenge_session(db: Session, request: schemas.ChallengeSetup) -> sch
 
 def complete_challenge_session(db: Session, challenge_session_id: int, challenge_details = schemas.ChallengeCompletion):
 
+    # STEP 1: Validate the challenge session and close it out in the DB.
     get_active_challenge_session = get_active_challenge_session(
         db, 
         session_id=challenge_session_id
     )
     
+
     session = crud.complete_session(
         db,
         get_active_challenge_session,
@@ -61,6 +65,34 @@ def complete_challenge_session(db: Session, challenge_session_id: int, challenge
     )
 
     result = schemas.ChallengeCompletionResponse(message="Challenge session completed.", result_reason=session.result_reason)
+
+
+    
+
+    # STEP 2: Log the challenge details in the challenge attempts table for future analytics.
+    # Fetch session details for logging
+    persona_id = get_active_challenge_session.persona_id if hasattr(get_active_challenge_session, 'persona_id') else None
+    user_id = get_active_challenge_session.user_id if hasattr(get_active_challenge_session, 'user_id') else None
+    challenge_id = get_active_challenge_session.challenge_id if hasattr(get_active_challenge_session, 'challenge_id') else None
+    role_mode = getattr(get_active_challenge_session, 'role_mode', None)
+    # Calculate time taken (if available)
+    time_taken_seconds = None
+    if hasattr(get_active_challenge_session, 'started_at') and hasattr(get_active_challenge_session, 'completed_at') and get_active_challenge_session.completed_at and get_active_challenge_session.started_at:
+        time_taken_seconds = int((get_active_challenge_session.completed_at - get_active_challenge_session.started_at).total_seconds())
+    # Determine win status from challenge_details
+    won = challenge_details.challenge_status == 'success' if hasattr(challenge_details, 'challenge_status') else False
+    # Attempt number: count previous attempts (not implemented, set to 1 for now)
+    attempt_number = 1
+    create_challenge_attempt(
+        db,
+        challenge_id=challenge_id,
+        user_id=user_id,
+        persona_id=persona_id,
+        role_mode=role_mode,
+        won=won,
+        time_taken_seconds=time_taken_seconds,
+        attempt_number=attempt_number
+    )
     return result
 
 def get_active_challenge_session(db: Session, session_details: schemas.ChallengeCompletion):

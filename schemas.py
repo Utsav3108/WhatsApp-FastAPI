@@ -1,4 +1,5 @@
 
+
 import datetime
 
 from pydantic import BaseModel, ConfigDict
@@ -132,3 +133,20 @@ class StorylineRequest(BaseModel):
 class StorylineResponse(BaseModel):
     storyline: str = Field(description="The intro story with dynamic pauses like [pause: 1.0]")
     call_to_action: str = Field(description="A clear, short instruction telling the user what to do next")
+
+
+from uuid import UUID
+
+class ChallengeAttemptResponse(BaseModel):
+    id: UUID
+    challenge_id: str
+    user_id: int
+    persona_id: int
+    role_mode: str | None = None
+    won: bool
+    time_taken_seconds: int | None = None
+    attempt_number: int | None = None
+    created_at: datetime.datetime
+
+    class Config:
+        from_attributes = True

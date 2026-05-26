@@ -25,8 +25,6 @@ class ChallengeAttempt(Base):
     persona_id = Column(Integer, ForeignKey("personas.id"), nullable=False)
     role_mode = Column(String)
     won = Column(Boolean, nullable=False)
-    score = Column(Integer)
-    number_of_turns = Column(Integer)
     time_taken_seconds = Column(Integer)
     attempt_number = Column(Integer)
     created_at = Column(DateTime, default=datetime.now)

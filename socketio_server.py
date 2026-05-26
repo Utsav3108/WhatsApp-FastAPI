@@ -205,31 +205,6 @@ async def handle_send_message(payload, db: Session, sid):
         from app.services import challenge_service
         challenge = challenge_service.get_challenge_by_id(db, challenge_session.challenge_id)
 
-        # print(f"Challenge session {challenge_session.id} is associated with challenge {challenge.id if challenge else 'N/A'}")
-
-    # print(f"Challenge session {challenge_session.id} is associated with challenge {challenge.id if challenge else 'N/A'}")
-
-    # from datetime import datetime
-
-    # if datetime.utcnow() >= challenge_session.expires_at:
-
-    #     challenge_session.status = "lost_timeout"
-
-    #     db.commit()
-
-    #     await sio.emit(
-    #         "challenge_completed",
-    #         {
-    #             "status": "lost_timeout",
-    #             "message": "Time is up."
-    #         },
-    #         room=f"challenge:{challenge_session.id}"
-    #     )
-
-    #     # print(f"Challenge session {challenge_session.id} has expired. Marked as lost_timeout.")
-    #     return
-    
-
     # print(f"Scheduling background task to handle Gemini response for message {message.id} in challenge session {challenge_session.id}")
     # IMPORTANT:
     # Do not pass the current `db` session to a background task because it

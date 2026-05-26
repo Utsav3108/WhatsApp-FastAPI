@@ -5,7 +5,7 @@ from datetime import datetime
 sio = socketio.AsyncClient()
 
 CHALLENGE_SESSION_ID = 1
-CHALLENGE_ID = 'one_night_stand_10'
+CHALLENGE_ID = 'challenge_123'
 SENDER_ID = 1
 RECEIVER_ID = 11
 
@@ -134,11 +134,7 @@ async def send_test_messages():
 
     await asyncio.sleep(5)
 
-    messages = [
-        "You seem interesting",
-        "What do you usually do on weekends?",
-        "I think we'd get along well"
-    ]
+    messages = []
 
     for text in messages:
 

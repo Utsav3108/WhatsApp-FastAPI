@@ -89,19 +89,9 @@ def setup_challenge(
     except ValueError as ve:
         return schemas.ChallengeSetupResponse(message=str(ve))
     
-# @router.post("/complete_challenge/{challenge_session_id}")
-# def complete_challenge(
-#     challenge_session_id: int,
-#     challenge_completion: schemas.ChallengeCompletion = Body(...),  
-#     db: Session = Depends(get_db)
-# ):
-#     try: 
-#         result = complete_challenge_session(
-#             db,
-#             challenge_session_id,
-#             challenge_completion.status,
-#             challenge_completion.reason
-#         )
-#         return result
-#     except ValueError as ve:
-#         return schemas.ChallengeCompletionResponse(message=str(ve))
+from app.crud_challenge_attempt import get_challenge_attempts_by_challenge_id
+
+@router.get("/challenge-attempts/{challenge_id}", response_model=list[schemas.ChallengeAttemptResponse])
+def get_challenge_attempts(challenge_id: str, db: Session = Depends(get_db)):
+    attempts = get_challenge_attempts_by_challenge_id(db, challenge_id)
+    return attempts

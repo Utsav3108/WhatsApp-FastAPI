@@ -19,6 +19,7 @@ class PersonaResponse(BaseModel):
     id: int
     name: str
     desc: str
+    traits: str
     image_url: str
 
     class Config:
@@ -110,6 +111,7 @@ class ChallengeSetupResponse(BaseModel):
     intro: Optional[StorylineResponse] = None
     status: Optional[enums.ChallengeResult] = None
     total_duration_minutes: Optional[int] = None
+    conversation_history: Optional[List[MessageResponse]] = None
     
 
 class ChallengeCompletion(BaseModel):
@@ -117,10 +119,11 @@ class ChallengeCompletion(BaseModel):
     challenge_status: enums.ChallengeResult
     challenge_session_id: int
     user_id: int
-    challenge_id: int
+    challenge_id: str
 
 class ChallengeCompletionResponse(BaseModel):
     message : str
+    challenge_status : str
     result_reason: Optional[str] = None
 
     class Config:
@@ -132,7 +135,7 @@ class StorylineRequest(BaseModel):
 
 class StorylineResponse(BaseModel):
     storyline: str = Field(description="The intro story with dynamic pauses like [pause: 1.0]")
-    call_to_action: str = Field(description="A clear, short instruction telling the user what to do next")
+    call_to_action: Optional[str] = Field(description="A clear, short instruction telling the user what to do next")
 
 
 from uuid import UUID
@@ -150,3 +153,13 @@ class ChallengeAttemptResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+from app.enums import ChallengeResult
+
+class EvaluationResponse(BaseModel):
+    status: ChallengeResult = Field(
+        description="The current evaluation state of the challenge based on the conversation."
+    )
+    reasoning: str = Field(
+        description="A brief, 1-2 sentence explanation of why this status was selected based on the latest context and messages."
+    )

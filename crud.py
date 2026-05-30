@@ -25,6 +25,8 @@ def get_messages_between_users(db: Session, user1_id: int, user2_id: int, limit:
         ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))
     ).order_by(models.Message.timestamp).offset(offset).limit(limit).all()
 
+def get_messages_by_challenge_session_id(db: Session, challenge_session_id: int):
+    return db.query(models.Message).filter(models.Message.challenge_session_id == challenge_session_id).order_by(models.Message.timestamp).all()
 
 # --------------------------------------------------------------------------
 # personas CRUD
@@ -281,14 +283,15 @@ def create_challenge_session(
     user_id: int,
     challenge_id: str,
     persona_id: int,
-    storyline: str
+    intro: schemas.StorylineResponse
 ):
 
     session = ChallengeSession(
         user_id=user_id,
         challenge_id=challenge_id,
         persona_id=persona_id,
-        storyline=storyline
+        storyline=intro.storyline,
+        call_to_action=intro.call_to_action
     )
 
     db.add(session)

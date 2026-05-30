@@ -4,8 +4,8 @@ from datetime import datetime
 
 sio = socketio.AsyncClient()
 
-CHALLENGE_SESSION_ID = 1
-CHALLENGE_ID = 'challenge_123'
+CHALLENGE_SESSION_ID = 11
+CHALLENGE_ID = 'ask_for_date_3'
 SENDER_ID = 1
 RECEIVER_ID = 11
 
@@ -57,7 +57,8 @@ async def connect():
             'challenge_session_id': CHALLENGE_SESSION_ID,
             'sender_id': SENDER_ID,
             'receiver_id': RECEIVER_ID,
-            'text': 'Hello there'
+            'text': 'Hello there',
+            'challenge_id': CHALLENGE_ID
         }
     )
 
@@ -145,7 +146,8 @@ async def send_test_messages():
             'challenge_session_id': CHALLENGE_SESSION_ID,
             'sender_id': SENDER_ID,
             'receiver_id': RECEIVER_ID,
-            'text': text
+            'text': text,
+            'challenge_id': CHALLENGE_ID
         }
 
         print(f"\nSending: {text}")
@@ -215,6 +217,7 @@ async def auto_complete_challenge():
 # -------------------------------------------------------------------
 # MAIN
 # -------------------------------------------------------------------
+
 
 async def main():
 

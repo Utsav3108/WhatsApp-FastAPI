@@ -18,7 +18,7 @@ from app.database import get_db
 from app.AppServices.connection_manageer import ConnectionManager
 
 from app.services import message_service, persona_service, challenge_service
-from app.services.challenge_session import setup_challenge_session, complete_challenge_session
+from app.services.challenge_session import setup_challenge_session
 
 router = APIRouter()
 manager = ConnectionManager()
@@ -87,10 +87,14 @@ def setup_challenge(
     db: Session = Depends(get_db)
 ):
     try:
-        return setup_challenge_session(db, request)
+
+        result = setup_challenge_session(db, request)
+        print(f"Challenge setup result: {result.model_dump()}")
+        return result
         
     except ValueError as ve:
         # Client-side input validation errors
+        print(f"Challenge setup result: {str(ve)}")
         return schemas.ChallengeSetupResponse(message=str(ve))
         
     except ServerError as se:

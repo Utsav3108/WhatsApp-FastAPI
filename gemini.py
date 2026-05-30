@@ -17,13 +17,12 @@ client = genai.Client(api_key=API_KEY)
 
 user_name = "Utsav"
 
-def ask_gemini(question, persona : models.Persona
-, user_name = "Utsav", senderId = 1, past_messages : List[models.Message] = [], challenge=None):
+def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav", senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge=None, challenge_session_id=None):
 
     # Example of mapping your DB rows to the Gemini format
     formatted_history = []
     for msg in past_messages:
-        role = "user" if msg.sender_id == -1 else "model"
+        role = "user" if msg.sender_id == 1 else "model"
         formatted_history.append({
             "role": role,
             "parts": [{"text": msg.text}]
@@ -75,6 +74,7 @@ def ask_gemini(question, persona : models.Persona
         "sender_id": persona.id, # Assuming 2 is the user_id for the AI persona
         "receiver_id": senderId, # Assuming 1 is the user_id for Utsav
         "text": response.text,
+        "challenge_session_id": challenge_session_id
     }
 
     MessageCreate = schemas.MessageCreate(**MessageCreate)
@@ -160,3 +160,79 @@ def create_storyline(challenge: models.Challenge) -> schemas.StorylineResponse:
 
     # The SDK automatically parses the JSON text into your Pydantic object
     return response.parsed
+
+def evaluate_challenge(
+    challenge: schemas.ChallengeResponse,
+    past_messages: List[schemas.MessageResponse],
+    persona: schemas.PersonaResponse
+) -> schemas.EvaluationResponse:
+    
+    # 1. Format the conversation thread for evaluation context
+    conversation_log = ""
+    for msg in past_messages:
+        speaker = "User" if msg.sender_id == 1 else persona.name
+        conversation_log += f"{speaker}: {msg.text}\n"
+
+    # 2. Extract challenge metadata safely
+    context_data = challenge.context if challenge.context else None
+    setting = context_data.setting if context_data else "Unknown setting"
+    goal = context_data.goal if context_data else "Unknown goal"
+    stakes = context_data.stakes if context_data else "Unknown stakes"
+
+    # 3. Construct the evaluation prompt for Gemini
+    prompt = f"""
+    You are an objective game engine judge evaluating a roleplay challenge conversation. 
+    Analyze the provided chat history against the challenge conditions to determine the game status.
+
+    # CHALLENGE META DATA
+    - Challenge Title: {challenge.title}
+    - Persona Name: {persona.name}
+    - Character Persona Traits: {persona.traits}
+    - Setting: {setting}
+    - Objective/Goal: {goal}
+    - Stakes: {stakes}
+
+    # CONVERSATION HISTORY
+    {conversation_log if conversation_log else "[No messages exchanged yet]"}
+
+    # EVALUATION CRITERIA GUIDE
+    - 'won_objective_completed': The conversation has reached a definitive conclusion where {persona.name} explicitly agreed to, conceded to, or satisfied the primary goal.
+    - 'lost_rejected': {persona.name} has explicitly refused, hard-declined, or flat out rejected the user's objective, shutting down negotiation.
+    - 'lost_blocked': The user severely insulted, harassed, or acted wildly out of character causing {persona.name} to break character, walk out, or block them in anger.
+    - 'active': The conversation is ongoing; the objective is neither fully achieved nor completely failed yet.
+
+    # OUTPUT REQUIREMENT
+    Return a structured JSON mapping perfectly to the provided schema detailing the status and reasoning.
+    """
+
+    print("Sending conversation to Gemini for evaluation...")
+
+    # 4. Structured Output API execution with Exponential Backoff Retries
+    max_retries = 3
+    base_delay = 2.0  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=prompt,
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": schemas.EvaluationResponse,
+                    "temperature": 0.2  # Kept low for deterministic, objective judgments
+                }
+            )
+            return response.parsed
+
+        except ServerError as e:
+            if attempt == max_retries - 1:
+                print(f"Gemini Evaluation ServerError after {max_retries} attempts: {e}")
+                raise e
+            
+            delay = base_delay * (2 ** attempt) 
+            print(f"Gemini busy (503). Retrying evaluation in {delay} seconds (Attempt {attempt + 1}/{max_retries})...")
+            time.sleep(delay)
+
+        except APIError as e:
+            print(f"Gemini Evaluation API Error: {e}")
+            raise e

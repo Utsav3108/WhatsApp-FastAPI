@@ -25,3 +25,7 @@ def get_messages_between_users(db, user1_id, user2_id, limit=50, offset=0) -> Li
     cache.store_cache(key, messages_response)
 
     return messages_response
+
+def get_message_by_session_id(db, challenge_session_id) -> List[MessageResponse]:
+    messages = crud.get_messages_by_challenge_session_id(db, challenge_session_id)
+    return [MessageResponse.model_validate(m) for m in messages]

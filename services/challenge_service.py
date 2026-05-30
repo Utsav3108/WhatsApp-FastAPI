@@ -145,7 +145,7 @@ advanced_json = '''{
 }'''
 
 # Generate and print the advanced persona as a demonstration
-print(generate_system_prompt(advanced_json))
+# print(generate_system_prompt(advanced_json))
 
 # [META-PROMPT]
 # You are an expert AI prompt engineer. 

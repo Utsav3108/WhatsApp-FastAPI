@@ -144,6 +144,8 @@ class ChallengeSession(Base):
 
     storyline = Column(Text, nullable=True)
 
+    call_to_action = Column(String, nullable=True)
+
     started_at = Column(
         DateTime(timezone=True),
         server_default=func.now()

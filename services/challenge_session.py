@@ -2,8 +2,8 @@
 from sqlalchemy.orm import Session
 from app.crud_challenge_attempt import create_challenge_attempt
 
-from app import crud, schemas
-from app.services import persona_service, challenge_service
+from app import crud, enums, schemas
+from app.services import message_service, persona_service, challenge_service
 from app.gemini import create_storyline
 
 def setup_challenge_session(db: Session, request: schemas.ChallengeSetup) -> schemas.ChallengeSetupResponse:
@@ -27,10 +27,16 @@ def setup_challenge_session(db: Session, request: schemas.ChallengeSetup) -> sch
         request.challenge_id
     )
     if existing_session:
+
+        conversation_history = message_service.get_message_by_session_id(db, existing_session.id)
+
         return schemas.ChallengeSetupResponse(
             message="Challenge resumed successfully.",
             challenge_session_id=existing_session.id,
-            intro=existing_session.storyline
+            intro=schemas.StorylineResponse(storyline=existing_session.storyline, call_to_action=existing_session.call_to_action) if existing_session.storyline else None,
+            status=existing_session.status,
+            total_duration_minutes=challenge.estimated_duration_minutes,
+            conversation_history=conversation_history
         )
     storyline = create_storyline(challenge)
     session = crud.create_challenge_session(
@@ -38,7 +44,7 @@ def setup_challenge_session(db: Session, request: schemas.ChallengeSetup) -> sch
         user_id=request.user_id,
         challenge_id=challenge.id,
         persona_id=challenge.selected_persona_id,
-        storyline=storyline.storyline
+        intro=storyline
     )
     return schemas.ChallengeSetupResponse(
         message=f"Challenge {challenge.title} started successfully.",
@@ -48,51 +54,61 @@ def setup_challenge_session(db: Session, request: schemas.ChallengeSetup) -> sch
         total_duration_minutes=challenge.estimated_duration_minutes
     )
 
-def complete_challenge_session(db: Session, challenge_session_id: int, challenge_details = schemas.ChallengeCompletion):
+def complete_challenge_session(db: Session, challenge_details = schemas.ChallengeCompletion) -> schemas.ChallengeCompletionResponse:
 
     # STEP 1: Validate the challenge session and close it out in the DB.
-    get_active_challenge_session = get_active_challenge_session(
+    active_challenge_session = get_active_challenge_session(
         db, 
-        session_id=challenge_session_id
+        session_details=challenge_details
     )
     
 
-    session = crud.complete_session(
-        db,
-        get_active_challenge_session,
-        "completed",
-        challenge_details.reason
-    )
+    # session = crud.complete_session(
+    #     db,
+    #     active_challenge_session,
+    #     "completed",
+    #     challenge_details.reason
+    # )
 
-    result = schemas.ChallengeCompletionResponse(message="Challenge session completed.", result_reason=session.result_reason)
-
-
-    
 
     # STEP 2: Log the challenge details in the challenge attempts table for future analytics.
     # Fetch session details for logging
-    persona_id = get_active_challenge_session.persona_id if hasattr(get_active_challenge_session, 'persona_id') else None
-    user_id = get_active_challenge_session.user_id if hasattr(get_active_challenge_session, 'user_id') else None
-    challenge_id = get_active_challenge_session.challenge_id if hasattr(get_active_challenge_session, 'challenge_id') else None
-    role_mode = getattr(get_active_challenge_session, 'role_mode', None)
+    persona_id = active_challenge_session.persona_id if hasattr(active_challenge_session, 'persona_id') else None
+    user_id = active_challenge_session.user_id if hasattr(active_challenge_session, 'user_id') else None
+    challenge_id = active_challenge_session.challenge_id if hasattr(active_challenge_session, 'challenge_id') else None
+    role_mode = getattr(active_challenge_session, 'role_mode', None)
     # Calculate time taken (if available)
     time_taken_seconds = None
-    if hasattr(get_active_challenge_session, 'started_at') and hasattr(get_active_challenge_session, 'completed_at') and get_active_challenge_session.completed_at and get_active_challenge_session.started_at:
-        time_taken_seconds = int((get_active_challenge_session.completed_at - get_active_challenge_session.started_at).total_seconds())
+    if hasattr(active_challenge_session, 'started_at') and hasattr(active_challenge_session, 'completed_at') and active_challenge_session.completed_at and active_challenge_session.started_at:
+        time_taken_seconds = int((active_challenge_session.completed_at - active_challenge_session.started_at).total_seconds())
     # Determine win status from challenge_details
-    won = challenge_details.challenge_status == 'success' if hasattr(challenge_details, 'challenge_status') else False
+
+    print(f"Challenge completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")
+
+    won = challenge_details.challenge_status == enums.ChallengeResult.WON_OBJECTIVE_COMPLETED or challenge_details.challenge_status == enums.ChallengeResult.WON if hasattr(challenge_details, 'challenge_status') else False
     # Attempt number: count previous attempts (not implemented, set to 1 for now)
     attempt_number = 1
-    create_challenge_attempt(
-        db,
-        challenge_id=challenge_id,
-        user_id=user_id,
-        persona_id=persona_id,
-        role_mode=role_mode,
-        won=won,
-        time_taken_seconds=time_taken_seconds,
-        attempt_number=attempt_number
-    )
+
+    # create_challenge_attempt(
+    #     db,
+    #     challenge_id=challenge_id,
+    #     user_id=user_id,
+    #     persona_id=persona_id,
+    #     role_mode=role_mode,
+    #     won=won,
+    #     time_taken_seconds=time_taken_seconds,
+    #     attempt_number=attempt_number
+    # )
+
+    print(f"Challenge session completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")
+
+    
+    result = schemas.ChallengeCompletionResponse(
+        message="Challenge session completed.", 
+        challenge_status=challenge_details.challenge_status, 
+        result_reason=challenge_details.reason
+        )
+
     return result
 
 def get_active_challenge_session(db: Session, session_details: schemas.ChallengeCompletion):

@@ -1,4 +1,7 @@
+from click import prompt
 from google import genai
+import time
+from google.genai.errors import ServerError, APIError 
 import os
 import dotenv
 
@@ -122,15 +125,38 @@ def create_storyline(challenge: models.Challenge) -> schemas.StorylineResponse:
 
 
     # Call Gemini with Structured Output configuration
-    response = client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": schemas.StorylineResponse,
-            "temperature": 0.7
-        }
-    )
+    
+    max_retries = 3
+    base_delay = 2.0  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents= prompt,
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": schemas.StorylineResponse,
+                    "temperature": 0.7
+                }
+            )
+            return response.parsed
+
+        except ServerError as e:
+            # 503 Service Unavailable / 429 Too Many Requests
+            if attempt == max_retries - 1:
+                print(f"Gemini ServerError after {max_retries} attempts: {e}")
+                raise e # Re-raise if all retries failed
+            
+            # Wait longer with each failure (Exponential Backoff)
+            delay = base_delay * (2 ** attempt) 
+            print(f"Gemini busy (503). Retrying in {delay} seconds (Attempt {attempt + 1}/{max_retries})...")
+            time.sleep(delay)
+
+        except APIError as e:
+            # Catch other general Google API issues (like 400 Bad Request, 403 Forbidden)
+            print(f"Gemini API Error: {e}")
+            raise e
 
     # The SDK automatically parses the JSON text into your Pydantic object
     return response.parsed

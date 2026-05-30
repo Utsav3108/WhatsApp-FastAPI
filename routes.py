@@ -76,6 +76,8 @@ def create_challenge(challenge_in: schemas.ChallengeCreate, db: Session = Depend
 
 
 
+from google.genai.errors import ServerError, APIError
+
 @router.post(
     "/setup_challenge",
     response_model=schemas.ChallengeSetupResponse
@@ -86,9 +88,31 @@ def setup_challenge(
 ):
     try:
         return setup_challenge_session(db, request)
+        
     except ValueError as ve:
+        # Client-side input validation errors
         return schemas.ChallengeSetupResponse(message=str(ve))
-    
+        
+    except ServerError as se:
+        # Specifically handles the 503 "High Demand" free-tier error
+        print(f"Route caught ServerError: {se}")
+        return schemas.ChallengeSetupResponse(
+            message="The AI engine is currently overloaded. Please wait a moment and try again."
+        )
+        
+    except APIError as ae:
+        # Handles other API issues (e.g., quota limits exceeded)
+        print(f"Route caught APIError: {ae}")
+        return schemas.ChallengeSetupResponse(
+            message="AI Service is temporarily unavailable. Please try again later."
+        )
+        
+    except Exception as e:
+        # Catch-all for database or local code crashes
+        print(f"Unexpected System Error: {e}")
+        return schemas.ChallengeSetupResponse(
+            message="A system error occurred while setting up the challenge."
+        )
 from app.crud_challenge_attempt import get_challenge_attempts_by_challenge_id
 
 @router.get("/challenge-attempts/{challenge_id}", response_model=list[schemas.ChallengeAttemptResponse])

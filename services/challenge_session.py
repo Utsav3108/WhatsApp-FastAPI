@@ -63,12 +63,12 @@ def complete_challenge_session(db: Session, challenge_details = schemas.Challeng
     )
     
 
-    # session = crud.complete_session(
-    #     db,
-    #     active_challenge_session,
-    #     "completed",
-    #     challenge_details.reason
-    # )
+    session = crud.complete_session(
+        db,
+        active_challenge_session,
+        "completed",
+        challenge_details.reason
+    )
 
 
     # STEP 2: Log the challenge details in the challenge attempts table for future analytics.
@@ -89,16 +89,16 @@ def complete_challenge_session(db: Session, challenge_details = schemas.Challeng
     # Attempt number: count previous attempts (not implemented, set to 1 for now)
     attempt_number = 1
 
-    # create_challenge_attempt(
-    #     db,
-    #     challenge_id=challenge_id,
-    #     user_id=user_id,
-    #     persona_id=persona_id,
-    #     role_mode=role_mode,
-    #     won=won,
-    #     time_taken_seconds=time_taken_seconds,
-    #     attempt_number=attempt_number
-    # )
+    create_challenge_attempt(
+        db,
+        challenge_id=challenge_id,
+        user_id=user_id,
+        persona_id=persona_id,
+        role_mode=role_mode,
+        won=won,
+        time_taken_seconds=time_taken_seconds,
+        attempt_number=attempt_number
+    )
 
     print(f"Challenge session completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")
 

@@ -86,6 +86,8 @@ class ChallengeBase(BaseModel):
     estimated_duration_minutes: Optional[int] = None
     challenge_rules: Optional[dict] = None
     image_url: Optional[str] = None
+
+    for_user: bool = True # New field to indicate if the challenge is for users or for personas
     selected_persona_id: Optional[int] = None  # New field for selected persona ID
 
 class ChallengeCreate(ChallengeBase):

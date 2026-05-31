@@ -17,7 +17,7 @@ client = genai.Client(api_key=API_KEY)
 
 user_name = "Utsav"
 
-def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav", senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge=None, challenge_session_id=None):
+def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav", senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None):
 
     # Example of mapping your DB rows to the Gemini format
     formatted_history = []
@@ -36,8 +36,9 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav",
         - ADAPTABILITY: Match the energy of {user_name} while keeping your persona dominant.
 
         # challenge CONTEXT
-        - CURRENT SETTING: {challenge.context.setting if challenge and challenge.context else ''}
-        - YOUR CORE GOAL: {challenge.context.goal if challenge and challenge.context else ''}
+        - CURRENT SETTING: {challenge.context.setting if challenge.context else ''}
+
+        - YOUR CORE GOAL: {challenge.context.goal if not challenge.for_user and challenge.context else "Behave realistically according to your personality and react honestly to the user's actions."}
         - THE STAKES: {challenge.context.stakes if challenge and challenge.context else ''}
 
         # CHAT INTERFACE & FORMATTING (Strict)
@@ -63,6 +64,7 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav",
         - STYLE: Casual, direct, and conversational. Do not sound like an AI assistant. No corporate fluff unless the character dictates it.
         """
 
+    print("System Instructions for Gemini:", system_instructions)
     chat = client.chats.create(
         model="gemini-3-flash-preview", 
         config={"system_instruction": system_instructions},

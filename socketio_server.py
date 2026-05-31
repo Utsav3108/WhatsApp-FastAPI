@@ -181,15 +181,11 @@ async def handle_send_message(payload, db: Session, sid):
     )
 
     challenge_session = db.query(
-    crud.models.ChallengeSession
-    ).filter(
-    crud.models.ChallengeSession.id
-    == message_in.challenge_session_id
-    ).first()
-
-    if not challenge_session:
-        # print(f"Challenge session {message_in.challenge_session_id} not found.")
-        return
+                crud.models.ChallengeSession
+                ).filter(
+                crud.models.ChallengeSession.id
+                == message_in.challenge_session_id
+            ).first()
 
     # Save user's message
     raw_message = crud.create_message(db, message_in)
@@ -229,8 +225,6 @@ async def handle_send_message(payload, db: Session, sid):
                 for m in db_msgs
             ]
 
-        # print(f"Loaded {len(past_messages)} past messages between user {message.sender_id} and persona {message.receiver_id}")
-
         # Add latest user message
         past_messages.append(message)
 
@@ -253,9 +247,15 @@ async def handle_send_message(payload, db: Session, sid):
                     cache.store_cache(personas_chat_key, personas_chatted)
 
 
-    asyncio.create_task(
-        handle_gemini_response(message, past_messages, sid, challenge, challenge_session.id)
-    )
+    if challenge_session:
+        asyncio.create_task(
+            handle_gemini_response(message, past_messages, sid, challenge, challenge_session.id)
+        )
+    else:
+        asyncio.create_task(
+            handle_gemini_response(message, past_messages, sid)
+        )
+
 
 
 

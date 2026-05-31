@@ -99,6 +99,7 @@ class Challenge(Base):
     estimated_duration_minutes = Column(Integer, nullable=True)
     challenge_rules = Column(JSON, nullable=True)
     image_url = Column(String, nullable=True)
+    for_user = Column(Boolean, nullable=True, default=True)
     context = relationship("ChallengeContext", uselist=False, back_populates="challenge", cascade="all, delete-orphan")
 
     selected_persona_id = Column(Integer, ForeignKey("personas.id"), nullable=True)  # New field for selected persona

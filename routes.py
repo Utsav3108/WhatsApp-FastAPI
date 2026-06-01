@@ -87,7 +87,7 @@ def setup_challenge(
     db: Session = Depends(get_db)
 ):
     try:
-
+        print("""Received challenge setup request""")
         result = setup_challenge_session(db, request)
         print(f"Challenge setup result: {result.model_dump()}")
         return result

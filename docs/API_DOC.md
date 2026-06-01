@@ -126,10 +126,12 @@ This document describes the main REST API endpoints for the WhatsApp mobile app 
   - 200 OK: ChallengeSetupResponse object
 
 
+
 #### ChallengeSetup Object
 - `challenge_id` (string): The challenge to start
 - `persona_id` (int, optional): The persona to assign
 - `user_id` (int): The user starting the challenge
+- `attempt_session_id` (int, optional): If provided, links to a specific previous attempt session to fetch its history.
 
 
 #### ChallengeSetupResponse Object

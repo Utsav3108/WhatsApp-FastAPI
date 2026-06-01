@@ -292,6 +292,13 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
             gemini_message
         )
 
+        # Send response back to the connected client
+        await sio.emit(
+            "receive_message",
+            validated_gemini_response.model_dump_json(),
+            room=f"challenge:{message.challenge_session_id}"
+        )
+
         # Update in-memory history
         past_messages.append(validated_gemini_response)
 
@@ -327,12 +334,7 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
                 [m.model_dump() for m in past_messages]
             )
 
-        # Send response back to the connected client
-        await sio.emit(
-            "receive_message",
-            validated_gemini_response.model_dump_json(),
-            room=f"challenge:{message.challenge_session_id}"
-        )
+
 
     except Exception as e:
         db.rollback()

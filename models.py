@@ -20,6 +20,7 @@ class ChallengeAttempt(Base):
     __tablename__ = "challenge_attempts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    challenge_session_id = Column(Integer, ForeignKey("challenge_sessions.id"), nullable=False)
     challenge_id = Column(String, ForeignKey("challenges.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("personas.id"), nullable=False)  # Now references Persona
     persona_id = Column(Integer, ForeignKey("personas.id"), nullable=False)
@@ -30,6 +31,7 @@ class ChallengeAttempt(Base):
     created_at = Column(DateTime, default=datetime.now)
 
     # Relationships
+    challenge_session = relationship("ChallengeSession", back_populates="attempts")
     user = relationship("Persona", foreign_keys=[user_id])
     challenge = relationship("Challenge")
     persona = relationship("Persona", foreign_keys=[persona_id])
@@ -156,6 +158,8 @@ class ChallengeSession(Base):
         DateTime(timezone=True),
         nullable=True
     )
+
+    attempts = relationship("ChallengeAttempt", back_populates="challenge_session", cascade="all, delete-orphan")
 
     challenge = relationship("Challenge")
 

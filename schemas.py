@@ -106,6 +106,7 @@ class ChallengeSetup(BaseModel):
     challenge_id: str
     persona_id: Optional[int] = None 
     user_id: int
+    attempt_session_id: Optional[int] = None  # New field to link to a specific attempt session if fetching history.
 
 class ChallengeSetupResponse(BaseModel):
     message: str
@@ -152,6 +153,7 @@ class ChallengeAttemptResponse(BaseModel):
     time_taken_seconds: int | None = None
     attempt_number: int | None = None
     created_at: datetime.datetime
+    challenge_session_id: int
 
     class Config:
         from_attributes = True

@@ -265,7 +265,11 @@ from sqlalchemy.orm import Session
 
 from app.models import ChallengeSession
 
-def get_active_session(
+
+def get_challenge_session_by_id(db: Session, session_id: int):
+    return db.query(ChallengeSession).filter(ChallengeSession.id == session_id).first()
+
+def get_existing_session(
     db: Session,
     user_id: int,
     challenge_id: str
@@ -273,8 +277,7 @@ def get_active_session(
 
     return db.query(ChallengeSession).filter(
         ChallengeSession.user_id == user_id,
-        ChallengeSession.challenge_id == challenge_id,
-        ChallengeSession.status == "active"
+        ChallengeSession.challenge_id == challenge_id
     ).first()
 
 

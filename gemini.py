@@ -1,4 +1,4 @@
-from click import prompt
+
 from google import genai
 import time
 from google.genai.errors import ServerError, APIError 
@@ -27,6 +27,10 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav",
             "role": role,
             "parts": [{"text": msg.text}]
         })
+
+    print("Formatted conversation history for Gemini:", formatted_history)
+    print("question being sent to Gemini:", question)
+
 
     if challenge:
         system_instructions = f"""

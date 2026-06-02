@@ -12,7 +12,7 @@ import app.crud as crud
 import app.cache as cache
 from app.gemini import ask_gemini, evaluate_challenge
 from app.database import SessionLocal
-from app.services import challenge_session, persona_service
+from app.services import challenge_service, challenge_session, persona_service
 from app.schemas import ChallengeCompletion
 
 from app.enums import ChallengeResult
@@ -275,6 +275,10 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
         # Get persona info
         persona = persona_service.get_persona_by_id(db, message.receiver_id)
 
+        attempt = None
+        if challenge:
+            attempt = challenge_service.get_attempt_number(db, challenge.id, message.sender_id)
+
         # Generate Gemini response
         gemini_response_in = ask_gemini(
             message.text,
@@ -282,7 +286,8 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
             senderId=message.sender_id,
             past_messages=past_messages,
             challenge=challenge,
-            challenge_session_id=challenge_session_id
+            challenge_session_id=challenge_session_id,
+            attempt=attempt
         )
 
         # Save Gemini response

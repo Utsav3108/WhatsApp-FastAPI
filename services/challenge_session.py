@@ -6,89 +6,140 @@ from app import crud, enums, schemas
 from app.services import message_service, persona_service, challenge_service
 from app.gemini import create_storyline
 
-def setup_challenge_session(db: Session, request: schemas.ChallengeSetup) -> schemas.ChallengeSetupResponse:
-    if request.challenge_id is None:
+def setup_challenge_session(
+    db: Session,
+    request: schemas.ChallengeSetup
+) -> schemas.ChallengeSetupResponse:
+
+
+    print(f"Setting up challenge session with request: {request}")
+
+    if not request.challenge_id:
         raise ValueError("challenge_id is required to start a challenge.")
+
     challenge = crud.get_challenge_by_id(db, request.challenge_id)
-    if challenge.selected_persona:
-        pass
-    elif request.persona_id:
-        persona = persona_service.get_persona_by_id(db, request.persona_id)
+
+    # Assign persona if needed
+    if not challenge.selected_persona:
+        if not request.persona_id:
+            raise ValueError(
+                "No persona assigned to this challenge. "
+                "Please provide a persona_id."
+            )
+
+        persona = persona_service.get_persona_by_id(
+            db,
+            request.persona_id
+        )
+
         challenge = challenge_service.assign_persona_to_challenge(
             db,
-            request.challenge_id,
+            challenge.id,
             persona.id
         )
-    else:
-        raise ValueError("No persona assigned to this challenge. Please provide a persona_id to assign.")
 
-
+    # -------------------------------------------------------------
+    # Previous attempt requested explicitly
+    # -------------------------------------------------------------
     if request.attempt_session_id:
-        # If an attempt_session_id is provided, we want to fetch the corresponding challenge session and its history.
-        existing_session = crud.get_challenge_session_by_id(db, request.attempt_session_id)
-        
-        conversation_history = message_service.get_message_by_session_id(db, existing_session.id)
+        session = crud.get_challenge_session_by_id(
+            db,
+            request.attempt_session_id
+        )
 
-        message = "You have already completed this challenge. Here is your previous session history."
-        
-        return schemas.ChallengeSetupResponse(
-            message=message,
-            challenge_session_id=existing_session.id,
-            intro=schemas.StorylineResponse(storyline=existing_session.storyline, call_to_action=existing_session.call_to_action) if existing_session.storyline else None,
-            status=existing_session.status,
-            total_duration_minutes=challenge.estimated_duration_minutes,
-            conversation_history=conversation_history
+        return _build_existing_session_response(
+            db=db,
+            challenge=challenge,
+            session=session,
+            message="You have already completed this challenge. Here is your previous session history."
+        )
+
+    # -------------------------------------------------------------
+    # Resume active session if available
+    # -------------------------------------------------------------
+    active_session = crud.get_existing_session(
+        db,
+        request.user_id,
+        challenge.id
+    )
+
+    if active_session:
+        return _build_existing_session_response(
+            db=db,
+            challenge=challenge,
+            session=active_session,
+            message="Resuming your existing challenge session."
         )
     
+    # -------------------------------------------------------------
+    # Create storyline if missing
+    # -------------------------------------------------------------
+    storyline = None
+
+    if challenge.context and challenge.context.storyline:
+        storyline = schemas.StorylineResponse(
+            storyline=challenge.context.storyline,
+            call_to_action=challenge.context.call_to_action
+        )
     else:
+        print("Creating new storyline for challenge.")
 
-        # Check for resume scenario: if the user has an existing active session for this challenge, we should return that instead of creating a new one.
-        existing_session = crud.get_existing_session(
+        storyline = create_storyline(challenge)
+
+        challenge_service.set_storyline(
             db,
-            request.user_id,
-            request.challenge_id
+            challenge.id,
+            storyline
         )
 
-        if existing_session and existing_session.status == "active":
+    # -------------------------------------------------------------
+    # Create new session
+    # -------------------------------------------------------------
+    session = crud.create_challenge_session(
+        db=db,
+        user_id=request.user_id,
+        challenge_id=challenge.id,
+        persona_id=challenge.selected_persona_id,
+        intro=storyline
+    )
 
-            conversation_history = message_service.get_message_by_session_id(db, existing_session.id)
+    return schemas.ChallengeSetupResponse(
+        message=f"Challenge '{challenge.title}' started successfully.",
+        challenge_session_id=session.id,
+        intro=storyline,
+        status=session.status,
+        total_duration_minutes=challenge.estimated_duration_minutes
+    )
 
-            message = "Resuming your existing challenge session." if existing_session.status == "active" else "You have already completed this challenge. Here is your previous session history."
-            
-            return schemas.ChallengeSetupResponse(
-                message=message,
-                challenge_session_id=existing_session.id,
-                intro=schemas.StorylineResponse(storyline=existing_session.storyline, call_to_action=existing_session.call_to_action) if existing_session.storyline else None,
-                status=existing_session.status,
-                total_duration_minutes=challenge.estimated_duration_minutes,
-                conversation_history=conversation_history
-            )
-        
 
-        storyline = schemas.StorylineResponse(storyline=challenge.context.storyline, call_to_action=challenge.context.call_to_action) if challenge.context and challenge.context.storyline else None
-        
-        if not storyline:
-        
-            # Create new challenge session
-            print("creating new storyline for challenge session")
-            storyline = create_storyline(challenge)
-            challenge_service.set_storyline(db, challenge.id, storyline)
-            
-        session = crud.create_challenge_session(
-            db=db,
-            user_id=request.user_id,
-            challenge_id=challenge.id,
-            persona_id=challenge.selected_persona_id,
-            intro=storyline
+def _build_existing_session_response(
+    db: Session,
+    challenge,
+    session,
+    message: str
+) -> schemas.ChallengeSetupResponse:
+
+    conversation_history = message_service.get_message_by_session_id(
+        db,
+        session.id
+    )
+
+    intro = None
+
+    if session.storyline:
+        intro = schemas.StorylineResponse(
+            storyline=session.storyline,
+            call_to_action=session.call_to_action
         )
 
-        return schemas.ChallengeSetupResponse(
-            message=f"Challenge {challenge.title} started successfully.",
-            challenge_session_id=session.id,
-            intro=storyline,
-            status=session.status,
-            total_duration_minutes=challenge.estimated_duration_minutes
-        )
+    return schemas.ChallengeSetupResponse(
+        message=message,
+        challenge_session_id=session.id,
+        intro=intro,
+        status=session.status,
+        total_duration_minutes=challenge.estimated_duration_minutes,
+        conversation_history=conversation_history
+    )
 
 def complete_challenge_session(db: Session, challenge_details = schemas.ChallengeCompletion) -> schemas.ChallengeCompletionResponse:
 
@@ -123,7 +174,7 @@ def complete_challenge_session(db: Session, challenge_details = schemas.Challeng
 
     won = challenge_details.challenge_status == enums.ChallengeResult.WON_OBJECTIVE_COMPLETED or challenge_details.challenge_status == enums.ChallengeResult.WON if hasattr(challenge_details, 'challenge_status') else False
     # Attempt number: count previous attempts (not implemented, set to 1 for now)
-    attempt_number = 1
+    attempt_number = challenge_service.get_attempt_number(db, challenge_id, user_id) + 1 if challenge_id and user_id else 1
 
     create_challenge_attempt(
         db,

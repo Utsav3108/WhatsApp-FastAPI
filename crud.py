@@ -21,8 +21,9 @@ def get_message_by_id(db: Session, message_id: int):
 
 def get_messages_between_users(db: Session, user1_id: int, user2_id: int, limit: int = 50, offset: int = 0):
     return db.query(models.Message).filter(
-        ((models.Message.sender_id == user1_id) & (models.Message.receiver_id == user2_id)) |
-        ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))
+(        ((models.Message.sender_id == user1_id) & (models.Message.receiver_id == user2_id)) |
+        ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))) &
+        (models.Message.challenge_session_id == None)  # Exclude messages that are part of a challenge session
     ).order_by(models.Message.timestamp).offset(offset).limit(limit).all()
 
 def get_messages_by_challenge_session_id(db: Session, challenge_session_id: int):
@@ -84,7 +85,7 @@ def create_persona(db: Session, persona: schemas.personaCreate):
 # Challenge CRUD
 # --------------------------------------------------------------------------
 
-from app.models import Challenge, ChallengeContext
+from app.models import Challenge, ChallengeAttempt, ChallengeContext
 from app.schemas import ChallengeCreate, ChallengeContextCreate
 from sqlalchemy.exc import IntegrityError
 
@@ -277,7 +278,8 @@ def get_existing_session(
 
     return db.query(ChallengeSession).filter(
         ChallengeSession.user_id == user_id,
-        ChallengeSession.challenge_id == challenge_id
+        ChallengeSession.challenge_id == challenge_id,
+        ChallengeSession.status == 'active'
     ).first()
 
 
@@ -319,3 +321,10 @@ def complete_session(
     db.refresh(session)
 
     return session
+
+
+def get_attempt(db: Session, user_id: int, challenge_id: str):
+    return db.query(models.ChallengeAttempt).filter(
+        models.ChallengeAttempt.user_id == user_id,
+        models.ChallengeAttempt.challenge_id == challenge_id
+    ).first().attempt_number

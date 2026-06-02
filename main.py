@@ -45,8 +45,6 @@ async def lifespan(app: FastAPI):
             )
             crud.save_persona(db, persona_in)
 
-    # Load and upsert challenges
-
     yield
 
     # ------------------------------------------------------------

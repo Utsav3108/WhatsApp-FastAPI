@@ -26,6 +26,19 @@ def assign_persona_to_challenge(db: Session, challenge_id: str, persona_id: int)
     return crud.update_challenge(db, challenge)
 
 
+def set_storyline(db: Session, challenge_id: str, storyline: schemas.StorylineResponse):
+    challenge = crud.get_challenge_by_id(db, challenge_id)
+    if not challenge:
+        raise ValueError(f"Challenge with ID {challenge_id} not found.")
+    
+    if not challenge.context:
+        raise ValueError(f"Challenge with ID {challenge_id} does not have an associated context to update.")
+    
+    challenge.context.storyline = storyline.storyline
+    challenge.context.call_to_action = storyline.call_to_action
+
+    return crud.update_challenge(db, challenge)
+
 import json
 
 def generate_system_prompt(metrics_json: str) -> str:

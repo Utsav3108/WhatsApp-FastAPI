@@ -52,6 +52,8 @@ class ChallengeContextBase(BaseModel):
     goal: str
     stakes: str
     platform: str
+    storyline: Optional[str] = None
+    call_to_action: Optional[str] = None
 
 # Enum for challenge difficulty
 class ChallengeDifficulty(str, Enum):

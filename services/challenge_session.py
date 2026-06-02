@@ -29,28 +29,7 @@ def setup_challenge_session(db: Session, request: schemas.ChallengeSetup) -> sch
         
         conversation_history = message_service.get_message_by_session_id(db, existing_session.id)
 
-        message = "Resuming your existing challenge session." if existing_session.status == "active" else "You have already completed this challenge. Here is your previous session history."
-        
-        return schemas.ChallengeSetupResponse(
-            message=message,
-            challenge_session_id=existing_session.id,
-            intro=schemas.StorylineResponse(storyline=existing_session.storyline, call_to_action=existing_session.call_to_action) if existing_session.storyline else None,
-            status=existing_session.status,
-            total_duration_minutes=challenge.estimated_duration_minutes,
-            conversation_history=conversation_history
-        )
-
-    existing_session = crud.get_existing_session(
-        db,
-        request.user_id,
-        request.challenge_id
-    )
-
-    if existing_session:
-
-        conversation_history = message_service.get_message_by_session_id(db, existing_session.id)
-
-        message = "Resuming your existing challenge session." if existing_session.status == "active" else "You have already completed this challenge. Here is your previous session history."
+        message = "You have already completed this challenge. Here is your previous session history."
         
         return schemas.ChallengeSetupResponse(
             message=message,
@@ -61,22 +40,55 @@ def setup_challenge_session(db: Session, request: schemas.ChallengeSetup) -> sch
             conversation_history=conversation_history
         )
     
-    
-    storyline = create_storyline(challenge)
-    session = crud.create_challenge_session(
-        db=db,
-        user_id=request.user_id,
-        challenge_id=challenge.id,
-        persona_id=challenge.selected_persona_id,
-        intro=storyline
-    )
-    return schemas.ChallengeSetupResponse(
-        message=f"Challenge {challenge.title} started successfully.",
-        challenge_session_id=session.id,
-        intro=storyline,
-        status=session.status,
-        total_duration_minutes=challenge.estimated_duration_minutes
-    )
+    else:
+
+        # Check for resume scenario: if the user has an existing active session for this challenge, we should return that instead of creating a new one.
+        existing_session = crud.get_existing_session(
+            db,
+            request.user_id,
+            request.challenge_id
+        )
+
+        if existing_session and existing_session.status == "active":
+
+            conversation_history = message_service.get_message_by_session_id(db, existing_session.id)
+
+            message = "Resuming your existing challenge session." if existing_session.status == "active" else "You have already completed this challenge. Here is your previous session history."
+            
+            return schemas.ChallengeSetupResponse(
+                message=message,
+                challenge_session_id=existing_session.id,
+                intro=schemas.StorylineResponse(storyline=existing_session.storyline, call_to_action=existing_session.call_to_action) if existing_session.storyline else None,
+                status=existing_session.status,
+                total_duration_minutes=challenge.estimated_duration_minutes,
+                conversation_history=conversation_history
+            )
+        
+
+        storyline = schemas.StorylineResponse(storyline=challenge.context.storyline, call_to_action=challenge.context.call_to_action) if challenge.context and challenge.context.storyline else None
+        
+        if not storyline:
+        
+            # Create new challenge session
+            print("creating new storyline for challenge session")
+            storyline = create_storyline(challenge)
+            challenge_service.set_storyline(db, challenge.id, storyline)
+            
+        session = crud.create_challenge_session(
+            db=db,
+            user_id=request.user_id,
+            challenge_id=challenge.id,
+            persona_id=challenge.selected_persona_id,
+            intro=storyline
+        )
+
+        return schemas.ChallengeSetupResponse(
+            message=f"Challenge {challenge.title} started successfully.",
+            challenge_session_id=session.id,
+            intro=storyline,
+            status=session.status,
+            total_duration_minutes=challenge.estimated_duration_minutes
+        )
 
 def complete_challenge_session(db: Session, challenge_details = schemas.ChallengeCompletion) -> schemas.ChallengeCompletionResponse:
 

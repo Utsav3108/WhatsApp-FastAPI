@@ -46,23 +46,7 @@ async def lifespan(app: FastAPI):
             crud.save_persona(db, persona_in)
 
     # Load and upsert challenges
-    with open(challenges_path, "r", encoding="utf-8") as f:
-        challenges_file_data = json.load(f)
 
-    challenges = challenges_file_data.get("challenges", [])
-
-    with SessionLocal() as db:
-        for challenges in challenges:
-            # Let Pydantic parse the entire nested JSON structure,
-            # including context, difficulty_settings, challenge_rules, etc.
-            challenges_in = schemas.ChallengeCreate.model_validate(challenges)
-
-            # Create or update the challenges and its context
-            crud.upsert_challenges(db, challenges_in)
-
-    # ------------------------------------------------------------
-    # Application Runs
-    # ------------------------------------------------------------
     yield
 
     # ------------------------------------------------------------

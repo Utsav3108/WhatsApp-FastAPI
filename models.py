@@ -75,7 +75,8 @@ class ChallengeContext(Base):
     stakes = Column(String)
     platform = Column(String)
     challenge = relationship("Challenge", back_populates="context")
-
+    storyline = Column(String, nullable=True)
+    call_to_action = Column(String, nullable=True)
 
 
 

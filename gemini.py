@@ -28,10 +28,6 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav",
             "parts": [{"text": msg.text}]
         })
 
-    print("Formatted conversation history for Gemini:", formatted_history)
-    print("question being sent to Gemini:", question)
-
-
     if challenge:
         system_instructions = f"""
         # ROLE & ROLEPLAY RULES

@@ -42,8 +42,8 @@ def set_storyline(db: Session, challenge_id: str, storyline: schemas.StorylineRe
 import json
 
 def get_attempt_number(db: Session, challenge_id: str, user_id: int):
-    attempt = crud.get_attempt(db, user_id, challenge_id)
-    return attempt  # Current attempt number is total previous attempts + 1
+    attempt = crud.get_attempts(db, user_id, challenge_id)
+    return len(attempt)  # Current attempt number is total previous attempts + 1
 
 def generate_system_prompt(metrics_json: str) -> str:
     """

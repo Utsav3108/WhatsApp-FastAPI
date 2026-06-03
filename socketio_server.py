@@ -147,12 +147,18 @@ async def send_message(sid, payload):
         # challenge_id : str = payload.get('challenge_id')
         # challenge_session_id : int = payload.get('challenge_session_id')
 
+        # challenge_session = db.query(
+        #             crud.models.ChallengeSession
+        #             ).filter(
+        #             crud.models.ChallengeSession.id
+        #             == challenge_session_id
+        #         ).first()
 
         # asyncio.create_task(
         #     complete_challenge(
         #         sid=sid,
         #         user_id=user_id,
-        #         challenge_id=challenge_id,
+        #         challenge_id=challenge_session.challenge_id if challenge_session else None,
         #         challenge_session_id=challenge_session_id,
         #         eval=schemas.EvaluationResponse(
         #             status=enums.ChallengeResult.WON_OBJECTIVE_COMPLETED,

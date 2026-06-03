@@ -323,8 +323,8 @@ def complete_session(
     return session
 
 
-def get_attempt(db: Session, user_id: int, challenge_id: str):
+def get_attempts(db: Session, user_id: int, challenge_id: str):
     return db.query(models.ChallengeAttempt).filter(
         models.ChallengeAttempt.user_id == user_id,
         models.ChallengeAttempt.challenge_id == challenge_id
-    ).first().attempt_number
+    ).all()

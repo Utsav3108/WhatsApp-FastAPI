@@ -315,21 +315,31 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
 
         if challenge:
             
-            eval : schemas.EvaluationResponse = evaluate_challenge(
-                challenge,
-                past_messages,
-                persona,
-            )
+            # Check if the session is still active before evaluating
+            is_session_active = True
+            if challenge_session_id:
+                session = db.query(crud.models.ChallengeSession).filter_by(id=challenge_session_id).first()
+                if session and session.status != 'active':
+                    is_session_active = False
 
-            print("""\n=== Challenge Evaluation ===""")
-            print(f"Evaluation result: {eval.status}")
-            print(f"Evaluation reasoning: {eval.reasoning}")
-
-            if eval.status != ChallengeResult.ACTIVE :
-                # Send response back to the connected client
-                asyncio.create_task(
-                    complete_challenge(sid, message.sender_id, challenge.id, challenge_session_id, eval)
+            if is_session_active:
+                eval : schemas.EvaluationResponse = evaluate_challenge(
+                    challenge,
+                    past_messages,
+                    persona,
                 )
+
+                print("""\n=== Challenge Evaluation ===""")
+                print(f"Evaluation result: {eval.status}")
+                print(f"Evaluation reasoning: {eval.reasoning}")
+
+                if eval.status != ChallengeResult.ACTIVE :
+                    # Send response back to the connected client
+                    asyncio.create_task(
+                        complete_challenge(sid, message.sender_id, challenge.id, challenge_session_id, eval)
+                    )
+            else:
+                print(f"Session {challenge_session_id} is not active (status: {session.status if session else 'unknown'}). Skipping challenge evaluation.")
 
         else:
             print(f"Gemini response {gemini_message.text}")

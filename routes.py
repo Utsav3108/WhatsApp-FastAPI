@@ -89,12 +89,12 @@ def setup_challenge(
     try:
         print("""Received challenge setup request""")
         result = setup_challenge_session(db, request)
-        print(f"Challenge setup result: {result.model_dump()}")
+        #print(f"Challenge setup result: {result.model_dump()}")
         return result
         
     except ValueError as ve:
         # Client-side input validation errors
-        print(f"Challenge setup result: {str(ve)}")
+       #print(f"Challenge setup result: {str(ve)}")
         return schemas.ChallengeSetupResponse(message=str(ve))
         
     except ServerError as se:

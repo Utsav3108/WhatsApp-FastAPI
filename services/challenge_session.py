@@ -143,6 +143,16 @@ def _build_existing_session_response(
 
 def complete_challenge_session(db: Session, challenge_details = schemas.ChallengeCompletion) -> schemas.ChallengeCompletionResponse:
 
+    # Check if the session is already completed to avoid duplicate completion attempts
+    session = crud.get_challenge_session_by_id(db, challenge_details.challenge_session_id)
+    if session and session.status != 'active':
+        print(f"Challenge session {challenge_details.challenge_session_id} is already completed with status: {session.status}")
+        return schemas.ChallengeCompletionResponse(
+            message="Challenge session already completed.",
+            challenge_status=session.status,
+            result_reason=session.result_reason
+        )
+
     # STEP 1: Validate the challenge session and close it out in the DB.
     active_challenge_session = get_active_challenge_session(
         db, 

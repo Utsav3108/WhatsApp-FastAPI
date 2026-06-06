@@ -1,8 +1,8 @@
-
 from app import models
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-def create_challenge_attempt(db: Session, *, challenge_id: str, user_id: int, persona_id: int, role_mode: str, won: bool, time_taken_seconds: int, attempt_number: int, challenge_session_id: int = None):
+async def create_challenge_attempt(db: AsyncSession, *, challenge_id: str, user_id: int, persona_id: int, role_mode: str, won: bool, time_taken_seconds: int, attempt_number: int, challenge_session_id: int = None):
     db_attempt = models.ChallengeAttempt(
         challenge_id=challenge_id,
         user_id=user_id,
@@ -14,9 +14,10 @@ def create_challenge_attempt(db: Session, *, challenge_id: str, user_id: int, pe
         challenge_session_id=challenge_session_id
     )
     db.add(db_attempt)
-    db.commit()
-    db.refresh(db_attempt)
+    await db.commit()
+    await db.refresh(db_attempt)
     return db_attempt
 
-def get_challenge_attempts_by_challenge_id(db: Session, challenge_id: str):
-    return db.query(models.ChallengeAttempt).filter(models.ChallengeAttempt.challenge_id == challenge_id).all()
+async def get_challenge_attempts_by_challenge_id(db: AsyncSession, challenge_id: str):
+    result = await db.execute(select(models.ChallengeAttempt).filter(models.ChallengeAttempt.challenge_id == challenge_id))
+    return result.scalars().all()

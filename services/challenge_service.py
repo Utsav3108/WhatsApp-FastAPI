@@ -1,33 +1,32 @@
+from sqlalchemy.ext.asyncio import AsyncSession
+from app import models, schemas, crud, crud_challenge_attempt
 
-def get_all_challenges(db: Session):
-    return crud.get_all_challenges(db)
-from sqlalchemy.orm import Session
-from app import models, schemas, crud
+async def get_all_challenges(db: AsyncSession) -> list[schemas.ChallengeResponse]:
+    results = await crud.get_all_challenges(db)
+    return [schemas.ChallengeResponse.model_validate(r) for r in results]
 
-def get_challenge_by_id(db: Session, challenge_id: str):
-
-    result = crud.get_challenge_by_id(db, challenge_id)
-
+async def get_challenge_by_id(db: AsyncSession, challenge_id: str) -> schemas.ChallengeResponse | None:
+    result = await crud.get_challenge_by_id(db, challenge_id)
     return schemas.ChallengeResponse.model_validate(result) if result else None
 
-def create_or_update_challenge(db: Session, challenge_in: schemas.ChallengeCreate):
-    return crud.upsert_challenges(db, challenge_in)
+async def create_or_update_challenge(db: AsyncSession, challenge_in: schemas.ChallengeCreate) -> schemas.ChallengeResponse:
+    result = await crud.upsert_challenges(db, challenge_in)
+    return schemas.ChallengeResponse.model_validate(result)
 
-def get_challenge_context(db: Session, challenge_id: str):
-    return crud.get_challenge_context_by_challenge_id(db, challenge_id)
+async def get_challenge_context(db: AsyncSession, challenge_id: str):
+    return await crud.get_challenge_context_by_challenge_id(db, challenge_id)
 
-def assign_persona_to_challenge(db: Session, challenge_id: str, persona_id: int):
-    challenge = crud.get_challenge_by_id(db, challenge_id)
+async def assign_persona_to_challenge(db: AsyncSession, challenge_id: str, persona_id: int) -> schemas.ChallengeResponse:
+    challenge = await crud.get_challenge_by_id(db, challenge_id)
     if not challenge:
         raise ValueError(f"Challenge with ID {challenge_id} not found.")
     
     challenge.selected_persona_id = persona_id
+    result = await crud.update_challenge(db, challenge)
+    return schemas.ChallengeResponse.model_validate(result)
 
-    return crud.update_challenge(db, challenge)
-
-
-def set_storyline(db: Session, challenge_id: str, storyline: schemas.StorylineResponse):
-    challenge = crud.get_challenge_by_id(db, challenge_id)
+async def set_storyline(db: AsyncSession, challenge_id: str, storyline: schemas.StorylineResponse) -> schemas.ChallengeResponse:
+    challenge = await crud.get_challenge_by_id(db, challenge_id)
     if not challenge:
         raise ValueError(f"Challenge with ID {challenge_id} not found.")
     
@@ -37,13 +36,18 @@ def set_storyline(db: Session, challenge_id: str, storyline: schemas.StorylineRe
     challenge.context.storyline = storyline.storyline
     challenge.context.call_to_action = storyline.call_to_action
 
-    return crud.update_challenge(db, challenge)
+    result = await crud.update_challenge(db, challenge)
+    return schemas.ChallengeResponse.model_validate(result)
+
+async def get_challenge_attempts(db: AsyncSession, challenge_id: str) -> list[schemas.ChallengeAttemptResponse]:
+    attempts = await crud_challenge_attempt.get_challenge_attempts_by_challenge_id(db, challenge_id)
+    return [schemas.ChallengeAttemptResponse.model_validate(a) for a in attempts]
 
 import json
 
-def get_attempt_number(db: Session, challenge_id: str, user_id: int):
-    attempt = crud.get_attempts(db, user_id, challenge_id)
-    return len(attempt)  # Current attempt number is total previous attempts + 1
+async def get_attempt_number(db: AsyncSession, challenge_id: str, user_id: int):
+    attempt = await crud.get_attempts(db, user_id, challenge_id)
+    return len(attempt)
 
 def generate_system_prompt(metrics_json: str) -> str:
     """
@@ -58,7 +62,6 @@ def generate_system_prompt(metrics_json: str) -> str:
 
     # Helper function to categorize numeric sliders into behavioral tiers
     def evaluate_tier(score, metric_name):
-        # Handle string overrides if hint_frequency passes strings like 'high'/'low'
         if isinstance(score, str):
             return score.lower()
         
@@ -78,7 +81,6 @@ def generate_system_prompt(metrics_json: str) -> str:
     skeptic = evaluate_tier(metrics.get("skepticism_level", 0.5), "skepticism_level")
     openness = evaluate_tier(metrics.get("emotional_openness", 0.5), "emotional_openness")
 
-    # Mapping dictionary containing specific behavioral snippets
     behaviors = {
         "resistance": {
             "low": "Prioritize harmony and agreement. Go along with the user's ideas easily without pushing back or creating friction.",
@@ -117,7 +119,6 @@ def generate_system_prompt(metrics_json: str) -> str:
         }
     }
 
-    # Assemble the final prompt payload using clean Markdown blocks
     prompt = f"""[SYSTEM INSTRUCTIONS: BOT PERSONA PROFILE]
 You must embody the behavioral rules outlined below. Never drop character, and let these thresholds dictate your conversational style, tone, and decision-making framework.
 
@@ -135,41 +136,3 @@ You must embody the behavioral rules outlined below. Never drop character, and l
 - **Scaffolding & Guidance:** {behaviors['hints'][hints]}
 """
     return prompt
-
-
-# ==========================================
-# TEST IMPLEMENTATION
-# ==========================================
-
-beginner_json = '''{
-  "resistance_level": 0.2,
-  "required_trust_score": 0.4,
-  "positive_signal_threshold": 0.3,
-  "mistake_tolerance": 0.9,
-  "hint_frequency": "high",
-  "skepticism_level": 0.1,
-  "emotional_openness": 0.9
-}'''
-
-advanced_json = '''{
-  "resistance_level": 0.7,
-  "required_trust_score": 0.75,
-  "positive_signal_threshold": 0.65,
-  "mistake_tolerance": 0.5,
-  "hint_frequency": "low",
-  "skepticism_level": 0.6,
-  "emotional_openness": 0.4
-}'''
-
-# Generate and print the advanced persona as a demonstration
-# print(generate_system_prompt(advanced_json))
-
-# [META-PROMPT]
-# You are an expert AI prompt engineer. 
-# I am going to give you a challenge and a set of behavioral slider values (0.0 to 1.0). 
-# Your job is to generate a custom, highly specific system prompt for a chatbot operating *inside* that specific challenge.
-
-# Challenge: A high-stakes corporate boardroom B2B software sales pitch.
-# Metrics: { "resistance_level": 0.8, "emotional_openness": 0.1 }
-
-# Generate the system instructions explaining exactly what a 0.8 resistance level means *for a corporate buyer*, and what a 0.1 emotional openness looks like in a boardroom.

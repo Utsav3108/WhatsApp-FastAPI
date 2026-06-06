@@ -10,7 +10,6 @@ from app.socketio_server import sio_app
 from app import schemas, crud
 from app.database import SessionLocal
 
-from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -18,12 +17,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 file_path = os.path.join(BASE_DIR, "data.json")
 challenges_path = os.path.join(BASE_DIR, "challenge.json")
 
-models.Base.metadata.create_all(bind=engine)
-
-from contextlib import asynccontextmanager
-import json
-from fastapi import FastAPI
-
+async def init_models():
+    async with engine.begin() as conn:
+        await conn.run_sync(models.Base.metadata.create_all)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,11 +27,14 @@ async def lifespan(app: FastAPI):
     # Startup Logic
     # ------------------------------------------------------------
 
+    # Ensure models are created asynchronously
+    await init_models()
+
     # Load and upsert personas
     with open(file_path, "r", encoding="utf-8") as f:
         personas_data = json.load(f)
 
-    with SessionLocal() as db:
+    async with SessionLocal() as db:
         for persona in personas_data:
             persona_in = schemas.PersonaCreate(
                 name=persona["name"],
@@ -43,15 +42,13 @@ async def lifespan(app: FastAPI):
                 traits=persona["traits"],
                 image_url=persona["image_url"],
             )
-            crud.save_persona(db, persona_in)
+            await crud.save_persona(db, persona_in)
 
     yield
 
     # ------------------------------------------------------------
     # Shutdown Logic (optional)
     # ------------------------------------------------------------
-
-from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(router)
@@ -69,7 +66,6 @@ app.add_middleware(
 async def root():
     return {"message": "FastAPI is running"}
 
-from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

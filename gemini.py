@@ -28,14 +28,13 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav",
             "parts": [{"text": msg.text}]
         })
 
+    print("Formatted conversation history for Gemini:", formatted_history)
 
     # Dynamic text based on the attempt number
 # Strict isolation rules injected directly at the top
     fresh_start_directive = f"""
     # CRITICAL EXECUTION RULES
     - CURRENT SESSION: This is a completely isolated, independent gameplay session (Attempt number: {attempt}).
-    - MEMORY WIPE: Wipe all memory of any previous interactions, conversations, or alternate attempts with {user_name}. You are meeting/talking to them for the first time in this specific configuration.
-    - ANTI-REPETITION: Never reference past attempts, do not accuse the user of repeating old conversations from prior sessions, and never repeat your own phrasing from previous game cycles.
     """
 
     if challenge:

@@ -1,75 +1,111 @@
+from datetime import datetime
+from sqlalchemy import select, and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from app import models, schemas
+from app.models import Challenge, ChallengeAttempt, ChallengeContext, ChallengeSession, Persona, Message
 
 # --------------------------------------------------------------------------
 # Message CRUD
 # --------------------------------------------------------------------------
 
-from sqlalchemy.orm import Session
-from app import models, schemas
-
-def create_message(db: Session, message: schemas.MessageCreate):
+async def create_message(db: AsyncSession, message: schemas.MessageCreate):
     db_message = models.Message(**message.model_dump())
     db.add(db_message)
-    db.commit()
-    db.refresh(db_message)
+    await db.commit()
+    await db.refresh(db_message)
     return db_message
 
-def get_messages(db: Session, user_id: int):
-    return db.query(models.Message).filter(models.Message.user_id == user_id).all()
+async def get_messages(db: AsyncSession, user_id: int):
+    result = await db.execute(select(models.Message).filter(models.Message.user_id == user_id))
+    return result.scalars().all()
 
-def get_message_by_id(db: Session, message_id: int):
-    return db.query(models.Message).filter(models.Message.id == message_id).first()
+async def get_message_by_id(db: AsyncSession, message_id: int):
+    result = await db.execute(select(models.Message).filter(models.Message.id == message_id))
+    return result.scalars().first()
 
-def get_messages_between_users(db: Session, user1_id: int, user2_id: int, limit: int = 50, offset: int = 0):
-    return db.query(models.Message).filter(
-(        ((models.Message.sender_id == user1_id) & (models.Message.receiver_id == user2_id)) |
-        ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))) &
-        (models.Message.challenge_session_id == None)  # Exclude messages that are part of a challenge session
-    ).order_by(models.Message.timestamp).offset(offset).limit(limit).all()
+async def get_messages_between_users(db: AsyncSession, user1_id: int, user2_id: int, limit: int = 50, offset: int = 0):
+    result = await db.execute(
+        select(models.Message).filter(
+            (
+                ((models.Message.sender_id == user1_id) & (models.Message.receiver_id == user2_id)) |
+                ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))
+            ) &
+            (models.Message.challenge_session_id == None)  # Exclude messages that are part of a challenge session
+        ).order_by(models.Message.timestamp).offset(offset).limit(limit)
+    )
+    return result.scalars().all()
 
-def get_messages_by_challenge_session_id(db: Session, challenge_session_id: int):
-    return db.query(models.Message).filter(models.Message.challenge_session_id == challenge_session_id).order_by(models.Message.timestamp).all()
+async def get_messages_by_challenge_session_id(db: AsyncSession, challenge_session_id: int):
+    result = await db.execute(
+        select(models.Message).filter(
+            models.Message.challenge_session_id == challenge_session_id
+        ).order_by(models.Message.timestamp)
+    )
+    return result.scalars().all()
 
 # --------------------------------------------------------------------------
 # personas CRUD
 # --------------------------------------------------------------------------
 
-def search_personas(db: Session, query: str):
-    return db.query(models.Persona).filter(models.Persona.name.ilike(f"%{query}%")).all()
+async def search_personas(db: AsyncSession, query: str):
+    result = await db.execute(
+        select(models.Persona).filter(models.Persona.name.ilike(f"%{query}%"))
+    )
+    return result.scalars().all()
 
-def get_persona_by_id(db: Session, persona_id: int):
-    return db.query(models.Persona).filter(models.Persona.id == persona_id).first()
+async def get_persona_by_id(db: AsyncSession, persona_id: int):
+    result = await db.execute(
+        select(models.Persona).filter(models.Persona.id == persona_id)
+    )
+    return result.scalars().first()
 
-def get_persona_by_name(db: Session, name: str):
-    return db.query(models.Persona).filter(models.Persona.name == name).first()
+async def get_persona_by_name(db: AsyncSession, name: str):
+    result = await db.execute(
+        select(models.Persona).filter(models.Persona.name == name)
+    )
+    return result.scalars().first()
 
-def get_all_personas(db: Session, limit: int = 50, offset: int = 0):
-    return db.query(models.Persona).offset(offset).limit(limit).all()
+async def get_all_personas(db: AsyncSession, limit: int = 50, offset: int = 0):
+    result = await db.execute(
+        select(models.Persona).offset(offset).limit(limit)
+    )
+    return result.scalars().all()
 
-def get_personas_user_chatted_with(db: Session, user_id: int):
+async def get_personas_user_chatted_with(db: AsyncSession, user_id: int):
     # Get all unique persona IDs that the user has chatted with
-    sent_to_personas = db.query(models.Message.receiver_id).filter(models.Message.sender_id == user_id).distinct()
-    received_from_personas = db.query(models.Message.sender_id).filter(models.Message.receiver_id == user_id).distinct()
-    persona_ids = set([pid for (pid,) in sent_to_personas] + [pid for (pid,) in received_from_personas])
-    # Fetch persona details for these IDs
-    personas = db.query(models.Persona).filter(models.Persona.id.in_(persona_ids)).all()
-    return personas
+    sent_res = await db.execute(select(models.Message.receiver_id).filter(models.Message.sender_id == user_id).distinct())
+    received_res = await db.execute(select(models.Message.sender_id).filter(models.Message.receiver_id == user_id).distinct())
+    
+    sent_to_personas = [row[0] for row in sent_res.all()]
+    received_from_personas = [row[0] for row in received_res.all()]
+    persona_ids = list(set(sent_to_personas + received_from_personas))
+    
+    if not persona_ids:
+        return []
+        
+    result = await db.execute(select(models.Persona).filter(models.Persona.id.in_(persona_ids)))
+    return result.scalars().all()
 
-def save_persona(db: Session, persona: schemas.personaCreate):
-    if not check_persona_exists(db, persona.name):
-        return create_persona(db, persona)
+async def save_persona(db: AsyncSession, persona: schemas.PersonaCreate):
+    exists = await check_persona_exists(db, persona.name)
+    if not exists:
+        return await create_persona(db, persona)
     else:        
-        db_persona = db.query(models.Persona).filter(models.Persona.name == persona.name).first()
+        result = await db.execute(select(models.Persona).filter(models.Persona.name == persona.name))
+        db_persona = result.scalars().first()
         db_persona.desc = persona.desc
         db_persona.traits = persona.traits
         db_persona.image_url = persona.image_url
-        db.commit()
-        db.refresh(db_persona)
+        await db.commit()
+        await db.refresh(db_persona)
     return db_persona
 
-def check_persona_exists(db: Session, name: str):
-    return db.query(models.Persona).filter(models.Persona.name == name).first() is not None
+async def check_persona_exists(db: AsyncSession, name: str):
+    result = await db.execute(select(models.Persona).filter(models.Persona.name == name))
+    return result.scalars().first() is not None
 
-def create_persona(db: Session, persona: schemas.personaCreate):
+async def create_persona(db: AsyncSession, persona: schemas.PersonaCreate):
     db_persona = models.Persona(
         name=persona.name,
         desc=persona.desc,
@@ -77,37 +113,40 @@ def create_persona(db: Session, persona: schemas.personaCreate):
         image_url=persona.image_url
     )
     db.add(db_persona)
-    db.commit()
-    db.refresh(db_persona)
+    await db.commit()
+    await db.refresh(db_persona)
     return db_persona
 
 # --------------------------------------------------------------------------
 # Challenge CRUD
 # --------------------------------------------------------------------------
 
-from app.models import Challenge, ChallengeAttempt, ChallengeContext
-from app.schemas import ChallengeCreate, ChallengeContextCreate
-from sqlalchemy.exc import IntegrityError
+async def get_all_challenges(db: AsyncSession):
+    result = await db.execute(
+        select(Challenge).options(
+            selectinload(Challenge.context),
+            selectinload(Challenge.selected_persona)
+        )
+    )
+    return result.scalars().all()
 
+async def get_challenge_by_id(db: AsyncSession, challenge_id: str):
+    result = await db.execute(
+        select(Challenge).options(
+            selectinload(Challenge.context),
+            selectinload(Challenge.selected_persona)
+        ).filter(Challenge.id == challenge_id)
+    )
+    return result.scalars().first()
 
-def get_all_challenges(db: Session):
-    return db.query(Challenge).all()
+async def get_challenge_context_by_challenge_id(db: AsyncSession, challenge_id: str):
+    result = await db.execute(
+        select(ChallengeContext).filter(ChallengeContext.challenge_id == challenge_id)
+    )
+    return result.scalars().first()
 
-
-def get_challenge_by_id(db: Session, challenge_id: str):
-    return db.query(Challenge).filter(Challenge.id == challenge_id).first()
-
-def get_challenge_context_by_challenge_id(db: Session, challenge_id: str):
-    return db.query(ChallengeContext).filter(ChallengeContext.challenge_id == challenge_id).first()
 def _update_model_fields(model_instance, source, fields):
-    """
-    Update model fields from a source object (Pydantic model) or dict.
-
-    Returns:
-        bool: True if at least one field was changed.
-    """
     updated = False
-
     for field in fields:
         if isinstance(source, dict):
             new_value = source.get(field)
@@ -117,15 +156,9 @@ def _update_model_fields(model_instance, source, fields):
         if getattr(model_instance, field) != new_value:
             setattr(model_instance, field, new_value)
             updated = True
-
     return updated
 
-
-
-def _create_challenge_model(challenge: ChallengeCreate) -> Challenge:
-    """
-    Create a Challenge ORM instance from the Pydantic model.
-    """
+def _create_challenge_model(challenge: schemas.ChallengeCreate) -> Challenge:
     return Challenge(
         id=challenge.id,
         image_url=challenge.image_url,
@@ -142,73 +175,30 @@ def _create_challenge_model(challenge: ChallengeCreate) -> Challenge:
         selected_persona_id=challenge.selected_persona_id
     )
 
+async def update_challenge(db: AsyncSession, challenge: Challenge):
+    merged_challenge = await db.merge(challenge)
+    await db.commit()
+    return await get_challenge_by_id(db, merged_challenge.id)
 
-def update_challenge(
-    db: Session,
-    challenge: Challenge
-):
-    merged_challenge = db.merge(challenge)
-
-    db.commit()
-
-    db.refresh(merged_challenge)
-
-    return merged_challenge
-
-def upsert_challenges(db: Session, challenge: ChallengeCreate):
-    """
-    Create or update a challenge and its associated context.
-
-    Behavior:
-    - If the challenge exists, only modified fields are updated.
-    - If the challenge does not exist, it is created.
-    - ChallengeContext is created, updated, or left absent if no context is provided.
-    - Only one commit is performed for the entire operation.
-    """
-
-    # Convert optional nested Pydantic model into a dictionary
+async def upsert_challenges(db: AsyncSession, challenge: schemas.ChallengeCreate):
     context_data = challenge.context.model_dump() if challenge.context else None
 
-    # Fields stored directly in Challenge table
     challenge_fields = [
-        "image_url",
-        "title",
-        "subtitle",
-        "description",
-        "short_description",
-        "categories",
-        "suggested_personas",
-        "selected_persona_id",
-        "difficulty",
-        "difficulty_settings",
-        "estimated_duration_minutes",
-        "challenge_rules",
+        "image_url", "title", "subtitle", "description", "short_description",
+        "categories", "suggested_personas", "selected_persona_id", "difficulty",
+        "difficulty_settings", "estimated_duration_minutes", "challenge_rules"
     ]
 
-    # Fields stored in ChallengeContext table
-    context_fields = [
-        "setting",
-        "environment",
-        "goal",
-        "stakes",
-        "platform",
-    ]
+    context_fields = ["setting", "environment", "goal", "stakes", "platform"]
 
-    # Look up existing challenge
-    db_challenge = get_challenge_by_id(db, challenge.id)
+    db_challenge = await get_challenge_by_id(db, challenge.id)
 
-    # ------------------------------------------------------------------
     # CREATE
-    # ------------------------------------------------------------------
     if db_challenge is None:
-        # Create challenge
         db_challenge = _create_challenge_model(challenge)
         db.add(db_challenge)
+        await db.flush()
 
-        # Flush so the challenge exists before creating related context
-        db.flush()
-
-        # Create context if provided
         if context_data:
             db_context = ChallengeContext(
                 challenge_id=db_challenge.id,
@@ -216,25 +206,19 @@ def upsert_challenges(db: Session, challenge: ChallengeCreate):
             )
             db.add(db_context)
 
-        db.commit()
-        db.refresh(db_challenge)
-        return db_challenge
+        await db.commit()
+        return await get_challenge_by_id(db, db_challenge.id)
 
-    # ------------------------------------------------------------------
     # UPDATE
-    # ------------------------------------------------------------------
     updated = False
-
-    # Update Challenge fields
     updated |= _update_model_fields(
         model_instance=db_challenge,
         source=challenge,
         fields=challenge_fields,
     )
 
-    # Update/Create ChallengeContext if context is provided
     if context_data:
-        db_context = get_challenge_context_by_challenge_id(db, challenge.id)
+        db_context = await get_challenge_context_by_challenge_id(db, challenge.id)
 
         if db_context is None:
             db_context = ChallengeContext(
@@ -250,47 +234,32 @@ def upsert_challenges(db: Session, challenge: ChallengeCreate):
                 fields=context_fields,
             )
 
-    # Commit only if something changed
     if updated:
-        db.commit()
-        db.refresh(db_challenge)
+        await db.commit()
 
-    return db_challenge
+    return await get_challenge_by_id(db, db_challenge.id)
 
-
-
+# --------------------------------------------------------------------------
 # ChallengeSession CRUD
-from datetime import datetime, timedelta
+# --------------------------------------------------------------------------
 
-from sqlalchemy.orm import Session
+async def get_challenge_session_by_id(db: AsyncSession, session_id: int):
+    result = await db.execute(
+        select(ChallengeSession).filter(ChallengeSession.id == session_id)
+    )
+    return result.scalars().first()
 
-from app.models import ChallengeSession
+async def get_existing_session(db: AsyncSession, user_id: int, challenge_id: str):
+    result = await db.execute(
+        select(ChallengeSession).filter(
+            ChallengeSession.user_id == user_id,
+            ChallengeSession.challenge_id == challenge_id,
+            ChallengeSession.status == 'active'
+        )
+    )
+    return result.scalars().first()
 
-
-def get_challenge_session_by_id(db: Session, session_id: int):
-    return db.query(ChallengeSession).filter(ChallengeSession.id == session_id).first()
-
-def get_existing_session(
-    db: Session,
-    user_id: int,
-    challenge_id: str
-):
-
-    return db.query(ChallengeSession).filter(
-        ChallengeSession.user_id == user_id,
-        ChallengeSession.challenge_id == challenge_id,
-        ChallengeSession.status == 'active'
-    ).first()
-
-
-def create_challenge_session(
-    db: Session,
-    user_id: int,
-    challenge_id: str,
-    persona_id: int,
-    intro: schemas.StorylineResponse
-):
-
+async def create_challenge_session(db: AsyncSession, user_id: int, challenge_id: str, persona_id: int, intro: schemas.StorylineResponse):
     session = ChallengeSession(
         user_id=user_id,
         challenge_id=challenge_id,
@@ -298,33 +267,24 @@ def create_challenge_session(
         storyline=intro.storyline,
         call_to_action=intro.call_to_action
     )
-
     db.add(session)
-    db.commit()
-    db.refresh(session)
-
+    await db.commit()
+    await db.refresh(session)
     return session
 
-
-def complete_session(
-    db: Session,
-    session: ChallengeSession,
-    status: str,
-    reason: str
-):
-
+async def complete_session(db: AsyncSession, session: ChallengeSession, status: str, reason: str):
     session.status = status
     session.result_reason = reason
     session.completed_at = datetime.utcnow()
-
-    db.commit()
-    db.refresh(session)
-
+    await db.commit()
+    await db.refresh(session)
     return session
 
-
-def get_attempts(db: Session, user_id: int, challenge_id: str):
-    return db.query(models.ChallengeAttempt).filter(
-        models.ChallengeAttempt.user_id == user_id,
-        models.ChallengeAttempt.challenge_id == challenge_id
-    ).all()
+async def get_attempts(db: AsyncSession, user_id: int, challenge_id: str):
+    result = await db.execute(
+        select(models.ChallengeAttempt).filter(
+            models.ChallengeAttempt.user_id == user_id,
+            models.ChallengeAttempt.challenge_id == challenge_id
+        )
+    )
+    return result.scalars().all()

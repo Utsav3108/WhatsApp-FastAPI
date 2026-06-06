@@ -1,23 +1,20 @@
-
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud_challenge_attempt import create_challenge_attempt
-
 from app import crud, enums, schemas
 from app.services import message_service, persona_service, challenge_service
 from app.gemini import create_storyline
 
-def setup_challenge_session(
-    db: Session,
+async def setup_challenge_session(
+    db: AsyncSession,
     request: schemas.ChallengeSetup
 ) -> schemas.ChallengeSetupResponse:
-
 
     print(f"Setting up challenge session with request: {request}")
 
     if not request.challenge_id:
         raise ValueError("challenge_id is required to start a challenge.")
 
-    challenge = crud.get_challenge_by_id(db, request.challenge_id)
+    challenge = await crud.get_challenge_by_id(db, request.challenge_id)
 
     # Assign persona if needed
     if not challenge.selected_persona:
@@ -27,12 +24,12 @@ def setup_challenge_session(
                 "Please provide a persona_id."
             )
 
-        persona = persona_service.get_persona_by_id(
+        persona = await persona_service.get_persona_by_id(
             db,
             request.persona_id
         )
 
-        challenge = challenge_service.assign_persona_to_challenge(
+        challenge = await challenge_service.assign_persona_to_challenge(
             db,
             challenge.id,
             persona.id
@@ -42,12 +39,12 @@ def setup_challenge_session(
     # Previous attempt requested explicitly
     # -------------------------------------------------------------
     if request.attempt_session_id:
-        session = crud.get_challenge_session_by_id(
+        session = await crud.get_challenge_session_by_id(
             db,
             request.attempt_session_id
         )
 
-        return _build_existing_session_response(
+        return await _build_existing_session_response(
             db=db,
             challenge=challenge,
             session=session,
@@ -57,14 +54,14 @@ def setup_challenge_session(
     # -------------------------------------------------------------
     # Resume active session if available
     # -------------------------------------------------------------
-    active_session = crud.get_existing_session(
+    active_session = await crud.get_existing_session(
         db,
         request.user_id,
         challenge.id
     )
 
     if active_session:
-        return _build_existing_session_response(
+        return await _build_existing_session_response(
             db=db,
             challenge=challenge,
             session=active_session,
@@ -86,7 +83,7 @@ def setup_challenge_session(
 
         storyline = create_storyline(challenge)
 
-        challenge_service.set_storyline(
+        await challenge_service.set_storyline(
             db,
             challenge.id,
             storyline
@@ -95,7 +92,7 @@ def setup_challenge_session(
     # -------------------------------------------------------------
     # Create new session
     # -------------------------------------------------------------
-    session = crud.create_challenge_session(
+    session = await crud.create_challenge_session(
         db=db,
         user_id=request.user_id,
         challenge_id=challenge.id,
@@ -112,14 +109,14 @@ def setup_challenge_session(
     )
 
 
-def _build_existing_session_response(
-    db: Session,
+async def _build_existing_session_response(
+    db: AsyncSession,
     challenge,
     session,
     message: str
 ) -> schemas.ChallengeSetupResponse:
 
-    conversation_history = message_service.get_message_by_session_id(
+    conversation_history = await message_service.get_message_by_session_id(
         db,
         session.id
     )
@@ -141,10 +138,10 @@ def _build_existing_session_response(
         conversation_history=conversation_history
     )
 
-def complete_challenge_session(db: Session, challenge_details = schemas.ChallengeCompletion) -> schemas.ChallengeCompletionResponse:
+async def complete_challenge_session(db: AsyncSession, challenge_details = schemas.ChallengeCompletion) -> schemas.ChallengeCompletionResponse:
 
     # Check if the session is already completed to avoid duplicate completion attempts
-    session = crud.get_challenge_session_by_id(db, challenge_details.challenge_session_id)
+    session = await crud.get_challenge_session_by_id(db, challenge_details.challenge_session_id)
     if session and session.status != 'active':
         print(f"Challenge session {challenge_details.challenge_session_id} is already completed with status: {session.status}")
         return schemas.ChallengeCompletionResponse(
@@ -154,13 +151,13 @@ def complete_challenge_session(db: Session, challenge_details = schemas.Challeng
         )
 
     # STEP 1: Validate the challenge session and close it out in the DB.
-    active_challenge_session = get_active_challenge_session(
+    active_challenge_session = await get_active_challenge_session(
         db, 
         session_details=challenge_details
     )
     
 
-    session = crud.complete_session(
+    session = await crud.complete_session(
         db,
         active_challenge_session,
         challenge_details.challenge_status,
@@ -183,10 +180,10 @@ def complete_challenge_session(db: Session, challenge_details = schemas.Challeng
     print(f"Challenge completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")
 
     won = challenge_details.challenge_status == enums.ChallengeResult.WON_OBJECTIVE_COMPLETED or challenge_details.challenge_status == enums.ChallengeResult.WON if hasattr(challenge_details, 'challenge_status') else False
-    # Attempt number: count previous attempts (not implemented, set to 1 for now)
-    attempt_number = challenge_service.get_attempt_number(db, challenge_id, user_id) + 1 if challenge_id and user_id else 1
+    # Attempt number: count previous attempts
+    attempt_number = await challenge_service.get_attempt_number(db, challenge_id, user_id) + 1 if challenge_id and user_id else 1
 
-    create_challenge_attempt(
+    await create_challenge_attempt(
         db,
         challenge_id=challenge_id,
         user_id=user_id,
@@ -209,9 +206,9 @@ def complete_challenge_session(db: Session, challenge_details = schemas.Challeng
 
     return result
 
-def get_active_challenge_session(db: Session, session_details: schemas.ChallengeCompletion):
+async def get_active_challenge_session(db: AsyncSession, session_details: schemas.ChallengeCompletion):
 
-    result = crud.get_existing_session(
+    result = await crud.get_existing_session(
         db,
         session_details.user_id,
         session_details.challenge_id

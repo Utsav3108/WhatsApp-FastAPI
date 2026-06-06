@@ -1,11 +1,9 @@
 from app import crud, cache
-
 from app.schemas import MessageResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
-def get_messages_between_users(db, user1_id, user2_id, limit=50, offset=0) -> List[MessageResponse]:
-
+async def get_messages_between_users(db: AsyncSession, user1_id: int, user2_id: int, limit: int = 50, offset: int = 0) -> List[MessageResponse]:
     """Fetches messages between two users with pagination. Checks cache first before querying database."""
 
     key = cache.create_cache_message_key(user1_id, user2_id)
@@ -17,7 +15,7 @@ def get_messages_between_users(db, user1_id, user2_id, limit=50, offset=0) -> Li
         return cached_messages
     
     # If not in cache, fetch from database
-    messages = crud.get_messages_between_users(db, user1_id, user2_id, limit, offset)
+    messages = await crud.get_messages_between_users(db, user1_id, user2_id, limit, offset)
 
     messages_response = [MessageResponse.model_validate(m).model_dump() for m in messages]
 
@@ -26,6 +24,6 @@ def get_messages_between_users(db, user1_id, user2_id, limit=50, offset=0) -> Li
 
     return messages_response
 
-def get_message_by_session_id(db, challenge_session_id) -> List[MessageResponse]:
-    messages = crud.get_messages_by_challenge_session_id(db, challenge_session_id)
+async def get_message_by_session_id(db: AsyncSession, challenge_session_id: int) -> List[MessageResponse]:
+    messages = await crud.get_messages_by_challenge_session_id(db, challenge_session_id)
     return [MessageResponse.model_validate(m) for m in messages]

@@ -1,9 +1,12 @@
 from typing import Optional
+import os
+import traceback
 
 from fastapi import Depends
 import socketio
 import asyncio
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import enums
 from app.AppServices.connection_manageer import ConnectionManager
@@ -20,13 +23,18 @@ from app.enums import ChallengeResult
 from app.services import message_service, challenge_session as challenge_session_service
 
 
-# Socket.IO server
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+# Socket.IO server setup with optional Redis support
+redis_url = os.getenv("REDIS_URL")
+if redis_url:
+    print(f"Connecting Socket.IO to Redis at {redis_url}")
+    client_manager = socketio.AsyncRedisManager(redis_url)
+    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*', client_manager=client_manager)
+else:
+    print("Using in-memory Socket.IO manager.")
+    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+
 sio_app = socketio.ASGIApp(sio)
 manager = ConnectionManager()
-
-# Maps socket session ID -> user ID
-data_user_map = {}
 
 
 # --------------------------------------------------------------------------
@@ -41,92 +49,77 @@ def connect(sid, environ):
 @sio.event
 def disconnect(sid):
     print(f"Socket.IO: {sid} disconnected")
-    data_user_map.pop(sid, None)
 
 @sio.event
 async def join(sid, data):
     user_id = data.get("user_id")
     if user_id is not None:
-        data_user_map[sid] = user_id
         await sio.save_session(sid, {"user_id": user_id})
-        # print(f"User {user_id} joined with sid {sid}")
+        # Join a user-specific room for real-time persona chats
+        await sio.enter_room(sid, f"user:{user_id}")
+        print(f"User {user_id} joined room user:{user_id}")
 
 
 @sio.event
 async def join_challenge(sid, data):
-
     print(f"Received join_challenge event with data: {data}")
 
-    challenge_session_id = data.get(
-        "challenge_session_id"
-    )
-
+    challenge_session_id = data.get("challenge_session_id")
     if not challenge_session_id:
         print("no challenge_session_id provided in join_challenge event")  
         return
     
     room = f"challenge:{challenge_session_id}"
-
     print(f"Joining room {room} for sid {sid}")
 
     await sio.enter_room(sid, room)
-
     print(f"{sid} joined {room}")
 
 async def complete_challenge(sid, user_id, challenge_id, challenge_session_id, eval: schemas.EvaluationResponse):
-
     if not challenge_session_id:
         print("no challenge_session_id provided in complete_challenge event")  
         return
     
-    db = SessionLocal()
+    async with SessionLocal() as db:
+        print("challenge_session_id : ", challenge_session_id)
+        print("challenge_id : ", challenge_id)
+        print("user_id : ", user_id)
+        print("eval : ", eval)
+        print("eval.status : ", eval.status)
+        print("eval.reasoning : ", eval.reasoning)
 
-
-    print("challenge_session_id : ", challenge_session_id)
-    print("challenge_id : ", challenge_id)
-    print("user_id : ", user_id)
-    print("eval : ", eval)
-    print("eval.status : ", eval.status)
-    print("eval.reasoning : ", eval.reasoning)
-
-    session_details = schemas.ChallengeCompletion(
-        challenge_session_id=challenge_session_id,
-        challenge_status=eval.status,
-        reason=eval.reasoning,
-        user_id=user_id,
-        challenge_id=challenge_id
-
-    )
-
-
-    print("updating challenge session status in DB...")
-    try:
-        result = challenge_session.complete_challenge_session(
-            db,
-            challenge_details=session_details
+        session_details = schemas.ChallengeCompletion(
+            challenge_session_id=challenge_session_id,
+            challenge_status=eval.status,
+            reason=eval.reasoning,
+            user_id=user_id,
+            challenge_id=challenge_id
         )
 
-        print("Challenge session updated in DB with result: ", result)
-        print("Emitting challenge_completed event to client with result: ", result.model_dump_json())
-
-
-        print("Challenge session updated. Sending completion event to client... ")
-        await sio.emit(
-            "challenge_completed",
-            result.model_dump_json(),
-            room=f"challenge:{challenge_session_id}"    
+        print("updating challenge session status in DB...")
+        try:
+            result = await challenge_session.complete_challenge_session(
+                db,
+                challenge_details=session_details
             )
 
-        room = f"challenge:{session_details.challenge_session_id}"
-        await sio.leave_room(sid, room)
+            print("Challenge session updated in DB with result: ", result)
+            print("Emitting challenge_completed event to client with result: ", result.model_dump_json())
 
-    except Exception as e:
-        db.rollback()
-        print(f"Error in complete_challenge event: {e}")
-        raise
+            print("Challenge session updated. Sending completion event to client... ")
+            await sio.emit(
+                "challenge_completed",
+                result.model_dump_json(),
+                room=f"challenge:{challenge_session_id}"    
+            )
 
-    finally:
-        db.close()
+            room = f"challenge:{session_details.challenge_session_id}"
+            await sio.leave_room(sid, room)
+
+        except Exception as e:
+            await db.rollback()
+            print(f"Error in complete_challenge event: {e}")
+            traceback.print_exc()
 
 # --------------------------------------------------------------------------
 # Message Events
@@ -138,47 +131,17 @@ async def send_message(sid, payload):
     Create a new database session for this Socket.IO event and ensure it is
     always closed, even if an exception occurs.
     """
-    db = SessionLocal()
-
-    try:
-        await handle_send_message(payload, db, sid)
-
-        # user_id : int = payload.get('sender_id')
-        # challenge_id : str = payload.get('challenge_id')
-        # challenge_session_id : int = payload.get('challenge_session_id')
-
-        # challenge_session = db.query(
-        #             crud.models.ChallengeSession
-        #             ).filter(
-        #             crud.models.ChallengeSession.id
-        #             == challenge_session_id
-        #         ).first()
-
-        # asyncio.create_task(
-        #     complete_challenge(
-        #         sid=sid,
-        #         user_id=user_id,
-        #         challenge_id=challenge_session.challenge_id if challenge_session else None,
-        #         challenge_session_id=challenge_session_id,
-        #         eval=schemas.EvaluationResponse(
-        #             status=enums.ChallengeResult.WON_OBJECTIVE_COMPLETED,
-        #             reasoning="Challenge time expired"
-        #         )
-        #     )
-        # )
-
-    except Exception as e:
-        db.rollback()
-        print(f"Error in send_message: {e}")
-        raise
-
-    finally:
-        # This is the critical fix that returns the connection to SQLAlchemy's pool.
-        db.close()
+    async with SessionLocal() as db:
+        try:
+            await handle_send_message(payload, db, sid)
+        except Exception as e:
+            await db.rollback()
+            print(f"Error in send_message: {e}")
+            traceback.print_exc()
+            raise
 
 
-async def handle_send_message(payload, db: Session, sid):
-
+async def handle_send_message(payload, db: AsyncSession, sid):
     message_in = schemas.MessageCreate(**payload)
 
     print(
@@ -186,25 +149,24 @@ async def handle_send_message(payload, db: Session, sid):
         f"to persona {message_in.receiver_id}: {message_in.text}"
     )
 
-    challenge_session = db.query(
-                crud.models.ChallengeSession
-                ).filter(
-                crud.models.ChallengeSession.id
-                == message_in.challenge_session_id
-            ).first()
+    session_result = await db.execute(
+        select(crud.models.ChallengeSession).filter(
+            crud.models.ChallengeSession.id == message_in.challenge_session_id
+        )
+    )
+    challenge_session = session_result.scalars().first()
 
     # Save user's message
-    raw_message = crud.create_message(db, message_in)
+    raw_message = await crud.create_message(db, message_in)
     message = schemas.MessageResponse.model_validate(raw_message)
 
     challenge = None
     past_messages = []
 
     if challenge_session:
-
         from app.services import challenge_service
-        past_messages = message_service.get_message_by_session_id(db, challenge_session.id)
-        challenge = challenge_service.get_challenge_by_id(db, challenge_session.challenge_id)
+        past_messages = await message_service.get_message_by_session_id(db, challenge_session.id)
+        challenge = await challenge_service.get_challenge_by_id(db, challenge_session.challenge_id)
 
     else:
         # Load cached or DB message history
@@ -221,7 +183,7 @@ async def handle_send_message(payload, db: Session, sid):
                 for m in cached_response
             ]
         else:
-            db_msgs = crud.get_messages_between_users(
+            db_msgs = await crud.get_messages_between_users(
                 db,
                 message.sender_id,
                 message.receiver_id
@@ -245,13 +207,13 @@ async def handle_send_message(payload, db: Session, sid):
         personas_chatted = cache.retrieve_cache(personas_chat_key)
         if personas_chatted is not None:
             if not any(p.get('id') == message.receiver_id for p in personas_chatted):
-                persona = db.query(crud.models.Persona).filter_by(id=message.receiver_id).first()
+                persona_res = await db.execute(select(crud.models.Persona).filter(crud.models.Persona.id == message.receiver_id))
+                persona = persona_res.scalars().first()
                 if persona:
                     from app.schemas import PersonaResponse
                     persona_data = PersonaResponse.model_validate(persona).model_dump()
                     personas_chatted.append(persona_data)
                     cache.store_cache(personas_chat_key, personas_chatted)
-
 
     if challenge_session:
         asyncio.create_task(
@@ -263,8 +225,6 @@ async def handle_send_message(payload, db: Session, sid):
         )
 
 
-
-
 async def handle_gemini_response(message : schemas.MessageCreate, past_messages, sid, challenge : Optional[schemas.ChallengeResponse] = None, challenge_session_id=None):
     """
     Background task that uses its own independent database session.
@@ -274,94 +234,92 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
     print("""\n=== Handling Gemini Response in Background Task ===""")
 
     # Create a new DB session for this background task
-    db = SessionLocal()
+    async with SessionLocal() as db:
+        try:
+            # Get persona info
+            persona = await persona_service.get_persona_by_id(db, message.receiver_id)
 
-    try:
+            attempt = None
+            if challenge:
+                attempt = await challenge_service.get_attempt_number(db, challenge.id, message.sender_id)
 
-        # Get persona info
-        persona = persona_service.get_persona_by_id(db, message.receiver_id)
+            # Generate Gemini response
+            gemini_response_in = ask_gemini(
+                message.text,
+                persona,
+                senderId=message.sender_id,
+                past_messages=past_messages,
+                challenge=challenge,
+                challenge_session_id=challenge_session_id,
+                attempt=attempt
+            )
 
-        attempt = None
-        if challenge:
-            attempt = challenge_service.get_attempt_number(db, challenge.id, message.sender_id)
+            # Save Gemini response
+            gemini_message = await crud.create_message(db, gemini_response_in)
 
-        # Generate Gemini response
-        gemini_response_in = ask_gemini(
-            message.text,
-            persona,
-            senderId=message.sender_id,
-            past_messages=past_messages,
-            challenge=challenge,
-            challenge_session_id=challenge_session_id,
-            attempt=attempt
-        )
+            validated_gemini_response = schemas.MessageResponse.model_validate(
+                gemini_message
+            )
 
-        # Save Gemini response
-        gemini_message = crud.create_message(db, gemini_response_in)
+            # Determine message routing: challenge room or user-specific persona chat room
+            if message.challenge_session_id:
+                room = f"challenge:{message.challenge_session_id}"
+            else:
+                room = f"user:{validated_gemini_response.receiver_id}"
 
-        validated_gemini_response = schemas.MessageResponse.model_validate(
-            gemini_message
-        )
+            # Send response back to the connected client
+            await sio.emit(
+                "receive_message",
+                validated_gemini_response.model_dump_json(),
+                room=room
+            )
 
-        # Send response back to the connected client
-        await sio.emit(
-            "receive_message",
-            validated_gemini_response.model_dump_json(),
-            room=f"challenge:{message.challenge_session_id}"
-        )
+            # Update in-memory history
+            past_messages.append(validated_gemini_response)
 
-        # Update in-memory history
-        past_messages.append(validated_gemini_response)
+            if challenge:
+                # Check if the session is still active before evaluating
+                is_session_active = True
+                if challenge_session_id:
+                    session_res = await db.execute(select(crud.models.ChallengeSession).filter(crud.models.ChallengeSession.id == challenge_session_id))
+                    session = session_res.scalars().first()
+                    if session and session.status != 'active':
+                        is_session_active = False
 
-        if challenge:
-            
-            # Check if the session is still active before evaluating
-            is_session_active = True
-            if challenge_session_id:
-                session = db.query(crud.models.ChallengeSession).filter_by(id=challenge_session_id).first()
-                if session and session.status != 'active':
-                    is_session_active = False
+                if is_session_active:
+                    eval : schemas.EvaluationResponse = evaluate_challenge(
+                        challenge,
+                        past_messages,
+                        persona,
+                    )
 
-            if is_session_active:
-                eval : schemas.EvaluationResponse = evaluate_challenge(
-                    challenge,
-                    past_messages,
-                    persona,
+                    print("""\n=== Challenge Evaluation ===""")
+                    print(f"Evaluation result: {eval.status}")
+                    print(f"Evaluation reasoning: {eval.reasoning}")
+
+                    if eval.status != ChallengeResult.ACTIVE :
+                        # Send response back to the connected client
+                        asyncio.create_task(
+                            complete_challenge(sid, message.sender_id, challenge.id, challenge_session_id, eval)
+                        )
+                else:
+                    print(f"Session {challenge_session_id} is not active (status: {session.status if session else 'unknown'}). Skipping challenge evaluation.")
+
+            else:
+                print(f"Gemini response {gemini_message.text}")
+
+                # Update cache
+                key = cache.create_cache_message_key(
+                    message.sender_id,
+                    message.receiver_id
                 )
 
-                print("""\n=== Challenge Evaluation ===""")
-                print(f"Evaluation result: {eval.status}")
-                print(f"Evaluation reasoning: {eval.reasoning}")
+                cache.store_cache(
+                    key,
+                    [m.model_dump() for m in past_messages]
+                )
 
-                if eval.status != ChallengeResult.ACTIVE :
-                    # Send response back to the connected client
-                    asyncio.create_task(
-                        complete_challenge(sid, message.sender_id, challenge.id, challenge_session_id, eval)
-                    )
-            else:
-                print(f"Session {challenge_session_id} is not active (status: {session.status if session else 'unknown'}). Skipping challenge evaluation.")
-
-        else:
-            print(f"Gemini response {gemini_message.text}")
-
-            # Update cache
-            key = cache.create_cache_message_key(
-                message.sender_id,
-                message.receiver_id
-            )
-
-            cache.store_cache(
-                key,
-                [m.model_dump() for m in past_messages]
-            )
-
-
-
-    except Exception as e:
-        db.rollback()
-        print(f"Error in handle_gemini_response: {e}")
-
-    finally:
-        # Always release the connection back to the pool
-        db.close()
-
+        except Exception as e:
+            await db.rollback()
+            print(f"Error in handle_gemini_response: {e}")
+            traceback.print_exc()

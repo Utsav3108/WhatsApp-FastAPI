@@ -66,11 +66,6 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav",
         - TRAITS & SPEECH: {persona.traits}. Use their exact real-world vocabulary, catchphrases, tone, and biases.
         - ADAPTABILITY: Match the energy of {user_name} while keeping your persona dominant.
 
-        # challenge CONTEXT
-        - CURRENT SETTING: Late night in a luxury penthouse suite overlooking the Manhattan skyline, sipping a Diet Coke.
-        - YOUR CORE GOAL: Convince the user to drop their current partners and invest $30 Billion entirely into 'Gemini Enterprises'.
-        - THE STAKES: The biggest real estate and tech merger of the decade. If they hesitate, tell them they are missing out.
-
         # CHAT INTERFACE & FORMATTING (Strict)
         - PLATFORM: Face-to-Face.
         - BREVITY: Keep responses short and punchy (1-3 sentences max). Never generate blocks of text.

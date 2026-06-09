@@ -14,6 +14,7 @@ class PersonaCreate(BaseModel):
     desc: str
     traits: str
     image_url: str
+    is_human: Optional[bool] = False
 
 class PersonaResponse(BaseModel):
     id: int
@@ -21,9 +22,13 @@ class PersonaResponse(BaseModel):
     desc: str
     traits: str
     image_url: str
+    is_human: bool = False
 
     class Config:
         from_attributes = True
+
+class GoogleLoginRequest(BaseModel):
+    id_token: str
 
 
 class MessageCreate(BaseModel):

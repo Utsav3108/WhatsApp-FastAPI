@@ -1,5 +1,5 @@
 from app import crud, cache
-from app.schemas import PersonaResponse
+from app.schemas import PersonaResponse, PersonaCreate
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
@@ -62,3 +62,7 @@ async def search_personas(db: AsyncSession, query: str):
 async def get_all_personas(db: AsyncSession, limit: int = 50, offset: int = 0) -> List[PersonaResponse]:
     personas = await crud.get_all_personas(db, limit=limit, offset=offset)
     return [PersonaResponse.model_validate(p) for p in personas]
+
+async def create_persona(db: AsyncSession, persona: PersonaCreate) -> PersonaResponse:
+    db_persona = await crud.save_persona(db, persona)
+    return PersonaResponse.model_validate(db_persona)

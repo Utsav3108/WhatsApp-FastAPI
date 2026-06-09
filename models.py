@@ -44,6 +44,7 @@ class Persona(Base):
     desc = Column(String)
     traits = Column(String)
     image_url = Column(String, default="")
+    is_human = Column(Boolean, default=False, nullable=True)
 
 class Message(Base):
     __tablename__ = "messages"

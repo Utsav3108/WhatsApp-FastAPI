@@ -20,6 +20,12 @@ challenges_path = os.path.join(BASE_DIR, "challenge.json")
 async def init_models():
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE personas ADD COLUMN is_human BOOLEAN DEFAULT 0;"))
+            print("Successfully added is_human column to personas table")
+        except Exception as e:
+            print(f"Migration info/warning (column may already exist): {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

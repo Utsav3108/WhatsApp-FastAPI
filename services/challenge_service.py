@@ -39,8 +39,8 @@ async def set_storyline(db: AsyncSession, challenge_id: str, storyline: schemas.
     result = await crud.update_challenge(db, challenge)
     return schemas.ChallengeResponse.model_validate(result)
 
-async def get_challenge_attempts(db: AsyncSession, challenge_id: str) -> list[schemas.ChallengeAttemptResponse]:
-    attempts = await crud_challenge_attempt.get_challenge_attempts_by_challenge_id(db, challenge_id)
+async def get_challenge_attempts(db: AsyncSession, challenge_id: str, user_id: int = None) -> list[schemas.ChallengeAttemptResponse]:
+    attempts = await crud_challenge_attempt.get_challenge_attempts_by_challenge_id(db, challenge_id, user_id)
     return [schemas.ChallengeAttemptResponse.model_validate(a) for a in attempts]
 
 import json

@@ -8,18 +8,20 @@ from fastapi import Body
 from app import gemini
 
 
-from fastapi import APIRouter, Depends, WebSocket
+from fastapi import APIRouter, Depends, WebSocket, Security, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.s3_service import S3Service
-from app import schemas, crud
+from app import schemas, crud, models
 from app.database import get_db
 from app.AppServices.connection_manageer import ConnectionManager
 
 from app.services import message_service, persona_service, challenge_service
 from app.services.challenge_session import setup_challenge_session
 
-router = APIRouter()
+public_router = APIRouter()
+protected_router = APIRouter()
 manager = ConnectionManager()
 
 
@@ -30,23 +32,17 @@ def get_s3_service():
 
 
 
-@router.get("/all-persona", response_model=list[schemas.PersonaResponse])
+@protected_router.get("/all-persona", response_model=list[schemas.PersonaResponse])
 async def get_all_persona(limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db)):
     personas = await persona_service.get_all_personas(db, limit=limit, offset=offset)
     return personas
 
-@router.post("/personas", response_model=schemas.PersonaResponse)
+@protected_router.post("/personas", response_model=schemas.PersonaResponse)
 async def create_persona(persona_in: schemas.PersonaCreate, db: AsyncSession = Depends(get_db)):
     persona = await persona_service.create_persona(db, persona_in)
     return persona
 
 async def verify_google_token(id_token: str) -> dict:
-    if id_token == "developer_bypass_token":
-        return {
-            "name": "Utsav",
-            "picture": "https://ui-avatars.com/api/?name=Utsav&background=random",
-            "email": "utsav@example.com"
-        }
     try:
         import httpx
         async with httpx.AsyncClient() as client:
@@ -63,7 +59,37 @@ async def verify_google_token(id_token: str) -> dict:
     
     raise ValueError("Invalid Google ID Token")
 
-@router.post("/auth/google", response_model=schemas.PersonaResponse)
+security = HTTPBearer()
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: AsyncSession = Depends(get_db)
+) -> models.Persona:
+    token = credentials.credentials
+    try:
+        payload = await verify_google_token(token)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid or expired token: {str(e)}"
+        )
+    
+    name = payload.get("name")
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload: name not found"
+        )
+    
+    db_persona = await crud.get_persona_by_name(db, name)
+    if not db_persona:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    return db_persona
+
+@public_router.post("/auth/google", response_model=schemas.PersonaResponse)
 async def google_login(login_in: schemas.GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
     try:
         payload = await verify_google_token(login_in.id_token)
@@ -86,31 +112,40 @@ async def google_login(login_in: schemas.GoogleLoginRequest, db: AsyncSession = 
         db_persona = await crud.create_persona(db, persona_in)
     return db_persona
 
-@router.get("/search-personas/{query}", response_model=list[schemas.PersonaResponse])
+@protected_router.get("/search-personas/{query}", response_model=list[schemas.PersonaResponse])
 async def search_personas(query: str, db: AsyncSession = Depends(get_db)):
     response = await persona_service.search_personas(db, query)
     return response
 
 
-@router.get("/personas/{user_id}", response_model=list[schemas.PersonaResponse])
-async def get_personas_user_chatted_with(user_id: int, db: AsyncSession = Depends(get_db)):
+@protected_router.get("/personas/{user_id}", response_model=list[schemas.PersonaResponse])
+async def get_personas_user_chatted_with(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
+):
+    if user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden: Cannot access other user's chat history")
     response = await persona_service.get_personas_user_chatted_with(db, user_id)
     return response
 
-@router.get("/messages", response_model=list[schemas.MessageResponse])
+@protected_router.get("/messages", response_model=list[schemas.MessageResponse])
 async def get_messages(
     sender_id: int,
     receiver_id: int,
     limit: int = 50,
     offset: int = 0,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
 ):
+    if sender_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden: Sender ID does not match current user")
     all_messages = await message_service.get_messages_between_users(db, sender_id, receiver_id, limit, offset)
     return all_messages 
 
 
 
-@router.get("/challenges", response_model=list[schemas.ChallengeResponse])
+@protected_router.get("/challenges", response_model=list[schemas.ChallengeResponse])
 async def get_all_challenges(db: AsyncSession = Depends(get_db)):
     challenges = await challenge_service.get_all_challenges(db)
     return challenges
@@ -118,7 +153,7 @@ async def get_all_challenges(db: AsyncSession = Depends(get_db)):
 
 
 
-@router.post("/challenges", response_model=schemas.ChallengeResponse)
+@protected_router.post("/challenges", response_model=schemas.ChallengeResponse)
 async def create_challenge(challenge_in: schemas.ChallengeCreate, db: AsyncSession = Depends(get_db)):
     challenge = await challenge_service.create_or_update_challenge(db, challenge_in)
     return challenge
@@ -127,14 +162,17 @@ async def create_challenge(challenge_in: schemas.ChallengeCreate, db: AsyncSessi
 
 from google.genai.errors import ServerError, APIError
 
-@router.post(
+@protected_router.post(
     "/setup_challenge",
     response_model=schemas.ChallengeSetupResponse
 )
 async def setup_challenge(
     request: schemas.ChallengeSetup = Body(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
 ):
+    if request.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden: User ID does not match current user")
     try:
         print("""Received challenge setup request""")
         result = await setup_challenge_session(db, request)
@@ -161,7 +199,11 @@ async def setup_challenge(
             message="A system error occurred while setting up the challenge."
         )
 
-@router.get("/challenge-attempts/{challenge_id}", response_model=list[schemas.ChallengeAttemptResponse])
-async def get_challenge_attempts(challenge_id: str, db: AsyncSession = Depends(get_db)):
-    attempts = await challenge_service.get_challenge_attempts(db, challenge_id)
+@protected_router.get("/challenge-attempts/{challenge_id}", response_model=list[schemas.ChallengeAttemptResponse])
+async def get_challenge_attempts(
+    challenge_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
+):
+    attempts = await challenge_service.get_challenge_attempts(db, challenge_id, user_id=current_user.id)
     return attempts

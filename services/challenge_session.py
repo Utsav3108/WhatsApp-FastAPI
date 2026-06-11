@@ -16,24 +16,18 @@ async def setup_challenge_session(
 
     challenge = await crud.get_challenge_by_id(db, request.challenge_id)
 
-    # Assign persona if needed
-    if not challenge.selected_persona:
+    # 1. Determine target persona ID and get target persona
+    if challenge.selected_persona_id is not None:
+        target_persona_id = challenge.selected_persona_id
+        persona = challenge.selected_persona
+    else:
         if not request.persona_id:
             raise ValueError(
                 "No persona assigned to this challenge. "
                 "Please provide a persona_id."
             )
-
-        persona = await persona_service.get_persona_by_id(
-            db,
-            request.persona_id
-        )
-
-        challenge = await challenge_service.assign_persona_to_challenge(
-            db,
-            challenge.id,
-            persona.id
-        )
+        target_persona_id = request.persona_id
+        persona = await persona_service.get_persona_by_id(db, target_persona_id)
 
     # -------------------------------------------------------------
     # Previous attempt requested explicitly
@@ -73,7 +67,7 @@ async def setup_challenge_session(
     # -------------------------------------------------------------
     storyline = None
 
-    if challenge.context and challenge.context.storyline:
+    if challenge.selected_persona_id is not None and challenge.context and challenge.context.storyline:
         storyline = schemas.StorylineResponse(
             storyline=challenge.context.storyline,
             call_to_action=challenge.context.call_to_action
@@ -81,13 +75,15 @@ async def setup_challenge_session(
     else:
         print("Creating new storyline for challenge.")
 
-        storyline = create_storyline(challenge)
+        storyline = create_storyline(challenge, persona)
 
-        await challenge_service.set_storyline(
-            db,
-            challenge.id,
-            storyline
-        )
+        # Only store storyline at the challenge level if it's a fixed-persona challenge
+        if challenge.selected_persona_id is not None:
+            await challenge_service.set_storyline(
+                db,
+                challenge.id,
+                storyline
+            )
 
     # -------------------------------------------------------------
     # Create new session
@@ -96,7 +92,7 @@ async def setup_challenge_session(
         db=db,
         user_id=request.user_id,
         challenge_id=challenge.id,
-        persona_id=challenge.selected_persona_id,
+        persona_id=target_persona_id,
         intro=storyline
     )
 

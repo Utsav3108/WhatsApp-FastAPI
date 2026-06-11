@@ -111,7 +111,7 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav",
 
     return MessageCreate
 
-def create_storyline(challenge: models.Challenge) -> schemas.StorylineResponse:
+def create_storyline(challenge: models.Challenge, persona: models.Persona = None) -> schemas.StorylineResponse:
     # Safely extract context elements in case they are missing
     context_data = challenge.context if challenge.context else None
     setting = context_data.setting if context_data else "Unknown setting"
@@ -129,6 +129,10 @@ def create_storyline(challenge: models.Challenge) -> schemas.StorylineResponse:
             time_of_day = env.get("time_of_day", "")
             env_details = f"Atmosphere: {mood}, Timing: {time_of_day}. Visuals: {visuals}. Sounds: {sounds}."
 
+    persona_info = ""
+    if persona:
+        persona_info = f"- Target AI Persona: {persona.name} (Description: {persona.desc}, Traits: {persona.traits})"
+
     prompt = f"""
     You are a cinematic game writer. Your job is to create a compelling, highly immersive baseline story intro and a call to action based on the game challenge metadata provided below.
 
@@ -140,6 +144,7 @@ def create_storyline(challenge: models.Challenge) -> schemas.StorylineResponse:
     - Environment Clues: {env_details}
     - User's Goal: {goal}
     - Platform/Interface: {platform}
+    {persona_info}
 
     # REQUIREMENTS FOR 'storyline'
     1. Keep it brief (under 80-90 words).

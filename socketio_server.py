@@ -239,6 +239,13 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
             # Get persona info
             persona = await persona_service.get_persona_by_id(db, message.receiver_id)
 
+            # Get user info
+            try:
+                user_persona = await persona_service.get_persona_by_id(db, message.sender_id)
+                user_name = user_persona.name if user_persona else "User"
+            except ValueError:
+                user_name = "User"
+
             attempt = None
             if challenge:
                 attempt = await challenge_service.get_attempt_number(db, challenge.id, message.sender_id)
@@ -247,6 +254,7 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
             gemini_response_in = ask_gemini(
                 message.text,
                 persona,
+                user_name=user_name,
                 senderId=message.sender_id,
                 past_messages=past_messages,
                 challenge=challenge,
@@ -291,6 +299,8 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
                         challenge,
                         past_messages,
                         persona,
+                        user_name=user_name,
+                        user_id=message.sender_id
                     )
 
                     print("""\n=== Challenge Evaluation ===""")

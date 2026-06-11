@@ -15,14 +15,12 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 
 client = genai.Client(api_key=API_KEY)
 
-user_name = "Utsav"
-
-def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav", senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
+def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
     # Example of mapping your DB rows to the Gemini format
     formatted_history = []
     for msg in past_messages:
-        role = "user" if msg.sender_id == 1 else "model"
+        role = "user" if msg.sender_id == senderId else "model"
         formatted_history.append({
             "role": role,
             "parts": [{"text": msg.text}]
@@ -101,8 +99,8 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "Utsav",
     response = chat.send_message(question)
 
     MessageCreate = {
-        "sender_id": persona.id, # Assuming 2 is the user_id for the AI persona
-        "receiver_id": senderId, # Assuming 1 is the user_id for Utsav
+        "sender_id": persona.id,
+        "receiver_id": senderId,
         "text": response.text,
         "challenge_session_id": challenge_session_id
     }
@@ -199,13 +197,15 @@ def create_storyline(challenge: models.Challenge, persona: models.Persona = None
 def evaluate_challenge(
     challenge: schemas.ChallengeResponse,
     past_messages: List[schemas.MessageResponse],
-    persona: schemas.PersonaResponse
+    persona: schemas.PersonaResponse,
+    user_name: str = "User",
+    user_id: int = 1
 ) -> schemas.EvaluationResponse:
     
     # 1. Format the conversation thread for evaluation context
     conversation_log = ""
     for msg in past_messages:
-        speaker = "User" if msg.sender_id == 1 else persona.name
+        speaker = user_name if msg.sender_id == user_id else persona.name
         conversation_log += f"{speaker}: {msg.text}\n"
 
     # 2. Extract challenge metadata safely

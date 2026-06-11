@@ -4,7 +4,9 @@ from app import models
 from app.database import engine
 import os
 import json
-from app.routes import public_router, protected_router, get_current_user
+from app.routers.auth import router as auth_router, get_current_user
+from app.routers.persona import router as persona_router
+from app.routers.challenge import router as challenge_router
 from fastapi import Depends
 from app.socketio_server import sio_app
 
@@ -58,8 +60,9 @@ async def lifespan(app: FastAPI):
     # ------------------------------------------------------------
 
 app = FastAPI(lifespan=lifespan)
-app.include_router(public_router)
-app.include_router(protected_router, dependencies=[Depends(get_current_user)])
+app.include_router(auth_router)
+app.include_router(persona_router, dependencies=[Depends(get_current_user)])
+app.include_router(challenge_router, dependencies=[Depends(get_current_user)])
 
 
 app.add_middleware(

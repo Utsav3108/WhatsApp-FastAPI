@@ -1,69 +1,101 @@
-# API Documentation for WhatsApp Mobile App Backend
+# API Documentation for Ripple Backend (FastAPI)
 
-This document describes the main REST API endpoints for the WhatsApp mobile app backend, built with FastAPI.
+This document describes the REST API endpoints and real-time Socket.IO protocols for the Ripple mobile app backend built with FastAPI.
+
+---
+
+## Authentication & Security
+
+All REST endpoints except the **Root** (`/`) and **Google Login** (`/auth/google`) endpoints require a valid Google `idToken` to be supplied as a Bearer token in the `Authorization` header:
+
+```http
+Authorization: Bearer <google_id_token>
+```
+
+The token is verified securely against Google's OAuth2 APIs. Upon validation:
+- The backend matches the verified Google profile (`name`, `email`, `picture`) against a database `Persona`.
+- If the persona does not exist, a new human persona is created (`is_human=True`).
+- Unauthenticated requests to protected endpoints return `401 Unauthorized`.
+- Attempting to access or mutate resources belonging to another user ID (such as checking another user's chat history or attempting a challenge on their behalf) returns `403 Forbidden`.
+
+---
 
 ## Endpoints
 
-### 1. Root
+### 1. Root (Public)
 - **GET /**
-- **Description:** Health check endpoint.
+- **Description:** Health check endpoint to verify backend status.
 - **Response:**
-  - 200 OK: `{ "message": "FastAPI is running" }`
+  - `200 OK`: `{ "message": "FastAPI is running" }`
 
 ---
 
-
-
-
-### 2. Get All persona
-- **GET /all-persona**
-- **Description:** Get a paginated list of all persona.
-- **Query Parameters:**
-  - `limit` (int, optional, default=50): Number of persona to return
-  - `offset` (int, optional, default=0): Pagination offset
+### 2. Google Login (Public)
+- **POST /auth/google**
+- **Description:** Authenticate, register, or login a user using a Google OAuth2 ID Token.
+- **Request Body:**
+  ```json
+  {
+    "id_token": "string"
+  }
+  ```
 - **Response:**
-  - 200 OK: List of Persona objects
+  - `200 OK`: Returns the created or logged-in user's [Persona Object](#persona-object).
+  - `400 Bad Request`: Validation failure if the Google ID token is invalid or expired.
+
+---
+
+### 3. Get All Personas (Protected)
+- **GET /all-persona**
+- **Description:** Get a paginated list of all personas in the database.
+- **Query Parameters:**
+  - `limit` (int, optional, default=50): Number of personas to return.
+  - `offset` (int, optional, default=0): Pagination offset.
+- **Response:**
+  - `200 OK`: List of [Persona Objects](#persona-object).
 
 #### Persona Object
-- `id` (int)
-- `name` (string)
-- `desc` (string)
-- `image_url` (string)
+- `id` (int): Unique identifier.
+- `name` (string): Persona name.
+- `desc` (string): Description of the persona.
+- `image_url` (string): URL to their profile picture.
+- `traits` (string, optional): Key traits or behaviors.
+- `is_human` (bool): Indicates if the persona represents a genuine human user or an AI.
 
 ---
 
-
-### 3. Search persona
+### 4. Search Personas (Protected)
 - **GET /search-personas/{query}**
-- **Description:** Search for persona by name or keyword.
+- **Description:** Search for personas by name or keyword traits.
 - **Path Parameter:**
-  - `query` (string): Search term
+  - `query` (string): Search term.
 - **Response:**
-  - 200 OK: List of Persona objects
+  - `200 OK`: List of [Persona Objects](#persona-object).
 
 ---
 
-
-### 4. Get persona User Chatted With
+### 5. Get Personas User Chatted With (Protected)
 - **GET /personas/{user_id}**
-- **Description:** Get a list of persona a user has chatted with.
+- **Description:** Get a list of personas the authenticated user has active chats with.
 - **Path Parameter:**
-  - `user_id` (int): User ID
+  - `user_id` (int): User ID. Must match the authenticated `current_user.id`.
 - **Response:**
-  - 200 OK: List of Persona objects
+  - `200 OK`: List of [Persona Objects](#persona-object).
+  - `403 Forbidden`: If `user_id` does not match the authenticated user.
 
 ---
 
-### 5. Get Messages Between Users
+### 6. Get Messages Between Users (Protected)
 - **GET /messages**
-- **Description:** Get messages exchanged between two users.
+- **Description:** Retrieve chat history between the current user and another persona.
 - **Query Parameters:**
-  - `sender_id` (int): Sender user ID
-  - `receiver_id` (int): Receiver user ID
-  - `limit` (int, optional, default=50): Number of messages to return
-  - `offset` (int, optional, default=0): Pagination offset
+  - `sender_id` (int): Sender user ID. Must match the authenticated `current_user.id`.
+  - `receiver_id` (int): Receiver persona ID.
+  - `limit` (int, optional, default=50): Number of messages to return.
+  - `offset` (int, optional, default=0): Pagination offset.
 - **Response:**
-  - 200 OK: List of Message objects
+  - `200 OK`: List of Message objects.
+  - `403 Forbidden`: If `sender_id` does not match the authenticated user.
 
 #### Message Object
 - `id` (int)
@@ -71,18 +103,19 @@ This document describes the main REST API endpoints for the WhatsApp mobile app 
 - `receiver_id` (int)
 - `text` (string)
 - `image_object_name` (string, optional)
+- `challenge_session_id` (int, optional)
 
 ---
 
-### 6. Get All Challenges
+### 7. Get All Challenges (Protected)
 - **GET /challenges**
-- **Description:** Get a list of all challenges, each with its context.
+- **Description:** Get a list of all active challenges, each with its associated configuration and story context.
 - **Response:**
-  - 200 OK: List of Challenge objects
+  - `200 OK`: List of [Challenge Objects](#challenge-object).
 
 #### Challenge Object
-- `id` (string)
-- `title` (string)
+- `id` (string): Unique challenge string identifier.
+- `title` (string): Title of the challenge.
 - `subtitle` (string, optional)
 - `description` (string, optional)
 - `short_description` (string, optional)
@@ -107,130 +140,59 @@ This document describes the main REST API endpoints for the WhatsApp mobile app 
 
 ---
 
-### 7. Create or Update Challenge
+### 8. Create or Update Challenge (Protected)
 - **POST /challenges**
-- **Description:** Create a new challenge or update an existing one.
+- **Description:** Create a new challenge configuration or update an existing one.
 - **Request Body:** ChallengeCreate object
 - **Response:**
-  - 200 OK: Challenge object
+  - `200 OK`: [Challenge Object](#challenge-object).
 
 ---
 
-
-
-### 8. Setup Challenge (Start/Resume)
+### 9. Setup Challenge (Protected)
 - **POST /setup_challenge**
-- **Description:** Start or resume a challenge for a user with a selected persona. If a session exists, resumes it; otherwise, assigns persona and generates storyline.
-- **Request Body:** ChallengeSetup object
+- **Description:** Start or resume a challenge session with a selected AI persona. If a session is active, returns the existing context; otherwise, assigns the persona and generates the starting storyline.
+- **Request Body:**
+  - `challenge_id` (string): The challenge to start.
+  - `user_id` (int): The user ID. Must match the authenticated `current_user.id`.
+  - `persona_id` (int, optional): Persona to assign.
+  - `attempt_session_id` (int, optional): Links to a specific previous attempt session if retrieving logs.
 - **Response:**
-  - 200 OK: ChallengeSetupResponse object
-
-
-
-#### ChallengeSetup Object
-- `challenge_id` (string): The challenge to start
-- `persona_id` (int, optional): The persona to assign
-- `user_id` (int): The user starting the challenge
-- `attempt_session_id` (int, optional): If provided, links to a specific previous attempt session to fetch its history.
-
+  - `200 OK`: ChallengeSetupResponse object.
+  - `403 Forbidden`: If `user_id` does not match the authenticated user.
 
 #### ChallengeSetupResponse Object
-- `message` (string): message
-- `challenge_session_id` (int, optional): Session ID for the challenge
-- `intro` (object, optional): StorylineResponse object
-- `status` (string, optional): ChallengeResult status, see table below.
-- `total_duration_minutes` (int, optional): Total duration of the challenge session in minutes
-- `conversation_history` (array of Message objects, optional): The full conversation history for the current challenge session. Each item is a Message object as described below.
+- `message` (string)
+- `challenge_session_id` (int, optional): Unique session ID.
+- `intro` (StorylineResponse object, optional): Contains `storyline` and `call_to_action`.
+- `status` (string, optional): Current challenge state (e.g. `active`, `won`, `lost_rejected`).
+- `total_duration_minutes` (int, optional)
+- `conversation_history` (array of Message objects, optional)
 
 ---
 
-## ChallengeResult Values
-
-| Value                     | Description                                             |
-| ------------------------- | ------------------------------------------------------- |
-| `won`                     | Challenge completed successfully.                       |
-| `won_objective_completed` | Persona agreed to or completed the challenge objective. |
-| `lost_timeout`            | Challenge failed due to timeout or inactivity.          |
-| `lost_rejected`           | Persona explicitly rejected the challenge objective.    |
-| `lost_blocked`            | Persona became angry or blocked the user.               |
-| `lost_rule_violation`     | User violated challenge rules or restrictions.          |
-| `abandoned`               | Challenge was abandoned before completion.              |
-| `active`                  | Challenge is currently active and ongoing.              |
-
----
-
-## Notes
-
-* `WON` is a generic success state.
-* `WON_OBJECTIVE_COMPLETED` is a more specific success outcome indicating the objective was explicitly accepted or completed.
-* `ACTIVE` indicates the challenge is still in progress.
-* `ABANDONED` is neither a win nor a loss state.
-
-
-#### StorylineResponse Object
-- `storyline` (string): The intro story with dynamic pauses like [pause: 1.0]
-- `call_to_action` (string): A clear, short instruction telling the user what to do next
-
-#### Message Object
-- `id` (int): Message ID
-- `sender_id` (int): Sender user ID
-- `receiver_id` (int): Receiver user ID
-- `text` (string): Message text
-- `image_object_name` (string, optional): Name of the image object if present
-- `challenge_session_id` (int, optional): Challenge session ID if message is part of a challenge
-
-### 9. Get Challenge Attempts
+### 10. Get Challenge Attempts (Protected)
 - **GET /challenge-attempts/{challenge_id}**
-- **Description:** Get all attempts for a given challenge.
+- **Description:** Get the attempt history of the **currently authenticated user** for the specified challenge. Attempts by other users are excluded.
 - **Path Parameter:**
-  - `challenge_id` (string): Challenge ID
+  - `challenge_id` (string): Challenge ID.
 - **Response:**
-  - 200 OK: List of ChallengeAttempt objects
+  - `200 OK`: List of ChallengeAttempt objects.
 
 #### ChallengeAttempt Object
-- `id` (UUID)
+- `id` (UUID): Unique attempt ID.
 - `challenge_id` (string)
-- `user_id` (int)
-- `persona_id` (int)
+- `user_id` (int): User ID.
+- `persona_id` (int): Target AI persona.
 - `role_mode` (string, optional)
-- `won` (bool)
+- `won` (bool): Win outcome flag.
 - `time_taken_seconds` (int, optional)
 - `attempt_number` (int, optional)
 - `created_at` (string, datetime)
 
 ---
 
-
-
 ## Real-Time Messaging (Socket.IO)
-- **Socket.IO endpoint:** `/socket.io`
-- Used for real-time messaging and challenge session management. Main events:
-  - `connect`: Client connects to the server
-  - `disconnect`: Client disconnects
-  - `join`: Register a user session (`{ user_id }`)
-  - `join_challenge`: Join a challenge room (`{ challenge_session_id }`)
-  - `send_message`: Send a chat message (`{ sender_id, receiver_id, text, challenge_session_id, image_object_name? }`)
-  - `receive_message`: Receive messages (including AI responses)
-  - `challenge_update`: (Emitted by server) Notifies clients in a challenge room about challenge status updates. See ChallengeCompletion object below.
-- Rooms are used for challenge sessions: `challenge:<challenge_session_id>`
-- All events are asynchronous. See `app/socketio_server.py` and `app/socketio_server_events.md` for full event details and payloads.
 
----
-
-
-
----
-
-### ChallengeCompletion Object (for challenge_update event)
-- `reason` (string, optional): Reason for challenge completion or status change
-- `challenge_status` (string): Status of the challenge (e.g., "COMPLETED", "FAILED", "ACTIVE")
-- `challenge_session_id` (int): The session ID for the challenge
-- `user_id` (int): The user who completed or is involved in the challenge
-- `challenge_id` (int): The challenge ID
-
----
-
-## Notes
-- All endpoints return JSON responses.
-- CORS is enabled for all origins.
-- For authentication and additional endpoints, see this documentation for all request and response formats.
+- **Socket.IO Endpoint:** `/socket.io`
+- Protocol events, room joining, and server events remain unchanged. Refer to [socketio_server_events.md](file:///Users/utsav/Documents/Projects/WhatsApp/app/docs/socketio_server_events.md) for Socket.IO API schemas.

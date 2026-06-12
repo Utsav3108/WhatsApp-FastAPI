@@ -73,9 +73,17 @@ async def get_all_personas(db: AsyncSession, limit: int = 50, offset: int = 0):
     return result.scalars().all()
 
 async def get_personas_user_chatted_with(db: AsyncSession, user_id: int):
-    # Get all unique persona IDs that the user has chatted with
-    sent_res = await db.execute(select(models.Message.receiver_id).filter(models.Message.sender_id == user_id).distinct())
-    received_res = await db.execute(select(models.Message.sender_id).filter(models.Message.receiver_id == user_id).distinct())
+    # Get all unique persona IDs that the user has chatted with in a personalized way (no challenge session)
+    sent_res = await db.execute(
+        select(models.Message.receiver_id)
+        .filter(models.Message.sender_id == user_id, models.Message.challenge_session_id == None)
+        .distinct()
+    )
+    received_res = await db.execute(
+        select(models.Message.sender_id)
+        .filter(models.Message.receiver_id == user_id, models.Message.challenge_session_id == None)
+        .distinct()
+    )
     
     sent_to_personas = [row[0] for row in sent_res.all()]
     received_from_personas = [row[0] for row in received_res.all()]

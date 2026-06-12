@@ -17,9 +17,13 @@ client = genai.Client(api_key=API_KEY)
 
 def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
+    
     # Example of mapping your DB rows to the Gemini format
     formatted_history = []
     for msg in past_messages:
+
+        print("msg.sender_id", msg.sender_id, "senderId", senderId)
+
         role = "user" if msg.sender_id == senderId else "model"
         formatted_history.append({
             "role": role,

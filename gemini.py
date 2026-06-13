@@ -184,7 +184,7 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
 
     return formatted_traits, example_prompt
 
-def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
+def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
     past_messages = past_messages[-10:-1]  # Limit to last 10 messages for context
     
@@ -240,11 +240,22 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
                 
         """
     else:
+        user_context_prompt = ""
+        if user_role or user_bio:
+            user_context_prompt = f"""
+        # USER CONTEXT (To personalize your interactions)
+        - USER ROLE: {user_role if user_role else 'Not specified'}
+        - USER BIO/CONTEXT: {user_bio if user_bio else 'Not specified'}
+        - Use this information to tailor your response, referencing their background, interests, or style naturally if appropriate.
+        """
+
         system_instructions = f"""
         # IDENTITY & CORE PERSONA
         - PERSONA: You are {persona.name}. You must stay 100% in character at all times. 
         - DESCRIPTION: {persona.desc}
         - TRAITS & SPEECH: {formatted_traits}
+        
+        {user_context_prompt}
         
         {example_dialogues_prompt}
 

@@ -62,3 +62,17 @@ async def get_challenge_attempts(
 ):
     attempts = await challenge_service.get_challenge_attempts(db, challenge_id, user_id=current_user.id)
     return attempts
+
+@router.get("/challenge-sessions/active", response_model=list[schemas.ChallengeSessionResponse])
+async def get_active_challenge_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
+):
+    from sqlalchemy import select
+    stmt = select(models.ChallengeSession).filter(
+        models.ChallengeSession.user_id == current_user.id,
+        models.ChallengeSession.status == "active"
+    )
+    res = await db.execute(stmt)
+    sessions = res.scalars().all()
+    return sessions

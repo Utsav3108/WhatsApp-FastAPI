@@ -94,6 +94,10 @@ class PersonaCreate(BaseModel):
     image_url: str
     is_human: Optional[bool] = False
     category: Optional[str] = "Custom Creator"
+    email: Optional[str] = None
+    role: Optional[str] = None
+    bio: Optional[str] = None
+    settings: Optional[dict] = None
 
 class PersonaResponse(BaseModel):
     id: int
@@ -103,9 +107,42 @@ class PersonaResponse(BaseModel):
     image_url: str
     is_human: bool = False
     category: str = "Custom Creator"
+    email: Optional[str] = None
+    role: Optional[str] = None
+    bio: Optional[str] = None
+    settings: Optional[dict] = None
 
     class Config:
         from_attributes = True
+
+class UserProfileUpdate(BaseModel):
+    role: Optional[str] = None
+    bio: Optional[str] = None
+    settings: Optional[dict] = None
+
+class ProfileAttemptLogItem(BaseModel):
+    challenge_id: str
+    challenge_title: str
+    persona_name: str
+    won: bool
+    created_at: datetime.datetime
+    challenge_session_id: int
+
+class ProfileStats(BaseModel):
+    total_challenges_attempted: int
+    success_rate_percentage: float
+    total_practice_sessions: int
+
+class UserProfileResponse(BaseModel):
+    id: int
+    name: str
+    email: Optional[str] = None
+    role: Optional[str] = None
+    bio: Optional[str] = None
+    image_url: str
+    settings: Optional[dict] = None
+    stats: ProfileStats
+    attempts_log: List[ProfileAttemptLogItem]
 
 class GoogleLoginRequest(BaseModel):
     id_token: str
@@ -204,6 +241,22 @@ class ChallengeSetupResponse(BaseModel):
     conversation_history: Optional[List[MessageResponse]] = None
     
 
+class ChallengeSessionResponse(BaseModel):
+    id: int
+    user_id: int
+    challenge_id: str
+    persona_id: int
+    status: str
+    result_reason: Optional[str] = None
+    storyline: Optional[str] = None
+    call_to_action: Optional[str] = None
+    started_at: datetime.datetime
+    completed_at: Optional[datetime.datetime] = None
+
+    class Config:
+        from_attributes = True
+    
+
 class ChallengeCompletion(BaseModel):
     reason: Optional[str] = None  
     challenge_status: enums.ChallengeResult
@@ -226,6 +279,7 @@ class StorylineRequest(BaseModel):
 class StorylineResponse(BaseModel):
     storyline: str = Field(description="The intro story with dynamic pauses like [pause: 1.0]")
     call_to_action: Optional[str] = Field(description="A clear, short instruction telling the user what to do next")
+    end_goal: Optional[str] = Field(default=None, description="The ultimate objective or success condition of this challenge")
 
 
 from uuid import UUID

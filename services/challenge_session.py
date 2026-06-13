@@ -70,12 +70,15 @@ async def setup_challenge_session(
     if challenge.selected_persona_id is not None and challenge.context and challenge.context.storyline:
         storyline = schemas.StorylineResponse(
             storyline=challenge.context.storyline,
-            call_to_action=challenge.context.call_to_action
+            call_to_action=challenge.context.call_to_action,
+            end_goal=challenge.context.goal if challenge.context else None
         )
     else:
         print("Creating new storyline for challenge.")
 
         storyline = create_storyline(challenge, persona)
+        if storyline and challenge.context and not getattr(storyline, 'end_goal', None):
+            storyline.end_goal = challenge.context.goal
 
         # Only store storyline at the challenge level if it's a fixed-persona challenge
         if challenge.selected_persona_id is not None:
@@ -122,7 +125,8 @@ async def _build_existing_session_response(
     if session.storyline:
         intro = schemas.StorylineResponse(
             storyline=session.storyline,
-            call_to_action=session.call_to_action
+            call_to_action=session.call_to_action,
+            end_goal=challenge.context.goal if challenge.context else None
         )
 
     return schemas.ChallengeSetupResponse(

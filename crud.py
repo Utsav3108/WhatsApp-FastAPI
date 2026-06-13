@@ -107,6 +107,10 @@ async def save_persona(db: AsyncSession, persona: schemas.PersonaCreate):
         db_persona.image_url = persona.image_url
         db_persona.is_human = persona.is_human
         db_persona.category = persona.category
+        db_persona.email = persona.email
+        db_persona.role = persona.role
+        db_persona.bio = persona.bio
+        db_persona.settings = persona.settings
         db.add(db_persona)
         await db.commit()
         await db.refresh(db_persona)
@@ -123,11 +127,30 @@ async def create_persona(db: AsyncSession, persona: schemas.PersonaCreate):
         traits=persona.traits,
         image_url=persona.image_url,
         is_human=persona.is_human,
-        category=persona.category
+        category=persona.category,
+        email=persona.email,
+        role=persona.role,
+        bio=persona.bio,
+        settings=persona.settings
     )
     db.add(db_persona)
     await db.commit()
     await db.refresh(db_persona)
+    return db_persona
+
+async def update_user_profile(db: AsyncSession, user_id: int, profile_in: schemas.UserProfileUpdate):
+    result = await db.execute(select(models.Persona).filter(models.Persona.id == user_id))
+    db_persona = result.scalars().first()
+    if db_persona:
+        if profile_in.role is not None:
+            db_persona.role = profile_in.role
+        if profile_in.bio is not None:
+            db_persona.bio = profile_in.bio
+        if profile_in.settings is not None:
+            db_persona.settings = profile_in.settings
+        db.add(db_persona)
+        await db.commit()
+        await db.refresh(db_persona)
     return db_persona
 
 # --------------------------------------------------------------------------

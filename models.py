@@ -70,6 +70,10 @@ class Persona(Base):
     image_url = Column(String, default="")
     is_human = Column(Boolean, default=False, nullable=True)
     category = Column(String, default="Custom Creator", nullable=True)
+    email = Column(String, nullable=True)
+    role = Column(String, nullable=True)
+    bio = Column(String, nullable=True)
+    settings = Column(SafeJSON, nullable=True)
 
 class Message(Base):
     __tablename__ = "messages"

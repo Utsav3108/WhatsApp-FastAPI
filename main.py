@@ -34,6 +34,26 @@ async def init_models():
             print("Successfully added category column to personas table")
         except Exception as e:
             pass
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE personas ADD COLUMN email VARCHAR;"))
+        except Exception:
+            pass
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE personas ADD COLUMN role VARCHAR;"))
+        except Exception:
+            pass
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE personas ADD COLUMN bio VARCHAR;"))
+        except Exception:
+            pass
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE personas ADD COLUMN settings TEXT;"))
+        except Exception:
+            pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

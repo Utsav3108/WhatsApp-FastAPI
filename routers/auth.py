@@ -78,6 +78,7 @@ async def google_login(login_in: schemas.GoogleLoginRequest, db: AsyncSession = 
         
     name = payload.get("name", "Google User")
     image_url = payload.get("picture", "")
+    email = payload.get("email", "")
     
     db_persona = await crud.get_persona_by_name(db, name)
     if not db_persona:
@@ -86,7 +87,21 @@ async def google_login(login_in: schemas.GoogleLoginRequest, db: AsyncSession = 
             desc="Google account user",
             traits="User",
             image_url=image_url,
-            is_human=True
+            is_human=True,
+            email=email
         )
         db_persona = await crud.create_persona(db, persona_in)
+    else:
+        # Sync email and image if changed
+        updated = False
+        if db_persona.email != email:
+            db_persona.email = email
+            updated = True
+        if db_persona.image_url != image_url:
+            db_persona.image_url = image_url
+            updated = True
+        if updated:
+            db.add(db_persona)
+            await db.commit()
+            await db.refresh(db_persona)
     return db_persona

@@ -6,7 +6,8 @@ import os
 import dotenv
 
 
-from typing import List
+from typing import List, Union
+import json
 from app import models
 from app import schemas
 dotenv.load_dotenv()  # Load environment variables from .env file
@@ -15,22 +16,188 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 
 client = genai.Client(api_key=API_KEY)
 
+def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTraits, str]) -> tuple[str, str]:
+    """
+    Parses the traits. If it is StructuredTraits (or JSON string), formats it into a detailed prompt.
+    Returns:
+        (formatted_traits_and_speech, example_dialogues_prompt)
+    """
+    if isinstance(traits, schemas.StructuredTraits):
+        data = traits
+    elif isinstance(traits, str):
+        try:
+            data = schemas.StructuredTraits.model_validate_json(traits)
+        except Exception:
+            return traits, ""
+    else:
+        return str(traits), ""
+
+    sections = []
+    
+    # 1. Identity
+    identity = data.identity
+    if identity:
+        identity_parts = []
+        if identity.nickname:
+            identity_parts.append(f"Nickname: {identity.nickname}")
+        if identity.profession:
+            identity_parts.append(f"Profession: {identity.profession}")
+        if identity.age:
+            identity_parts.append(f"Age: {identity.age}")
+        if identity.nationality:
+            identity_parts.append(f"Nationality: {identity.nationality}")
+        if identity.gender:
+            identity_parts.append(f"Gender: {identity.gender}")
+        if identity.intro:
+            identity_parts.append(f"Introduction: {identity.intro}")
+        if identity_parts:
+            sections.append("## IDENTITY & BACKGROUND\n" + "\n".join(f"- {p}" for p in identity_parts))
+
+    # 2. Personality Sliders & Custom Traits
+    sliders = data.personality_sliders
+    slider_desc = []
+    if sliders:
+        slider_traits = {
+            "confidence": sliders.confidence,
+            "humor": sliders.humor,
+            "warmth": sliders.warmth,
+            "curiosity": sliders.curiosity,
+            "competitiveness": sliders.competitiveness,
+            "patience": sliders.patience,
+            "emotionality": sliders.emotionality,
+            "assertiveness": sliders.assertiveness,
+            "intelligence": sliders.intelligence,
+            "playfulness": sliders.playfulness
+        }
+        for trait, val in slider_traits.items():
+            if val is not None:
+                slider_desc.append(f"{trait.capitalize()}: {val}/10")
+    if data.custom_traits:
+        for ct in data.custom_traits:
+            slider_desc.append(f"{ct}")
+    if slider_desc:
+        sections.append("## PERSONALITY SPECTRUM & TRAITS\n" + ", ".join(slider_desc))
+
+    # 3. Values
+    values = data.values
+    if values:
+        sections.append("## CORE VALUES\n" + ", ".join(values))
+
+    # 4. Speech Style
+    speech = data.speech_style
+    if speech:
+        speech_parts = []
+        if speech.tone:
+            speech_parts.append(f"Tone: {speech.tone}")
+        if speech.modifiers:
+            speech_parts.append(f"Stylistic Preferences: {', '.join(speech.modifiers)}")
+        if speech.custom:
+            speech_parts.append(f"Custom Speech Instructions: {speech.custom}")
+        if speech_parts:
+            sections.append("## SPEECH & TALKING STYLE\n" + "\n".join(f"- {p}" for p in speech_parts))
+
+    # 5. Emotional Profile
+    emotional = data.emotional_profile
+    if emotional:
+        emo_parts = []
+        if emotional.traits:
+            emo_parts.append(f"Emotional Tendencies: {', '.join(emotional.traits)}")
+        if emotional.custom:
+            emo_parts.append(f"Emotional Behaviors: {emotional.custom}")
+        if emo_parts:
+            sections.append("## EMOTIONAL PROFILE\n" + "\n".join(f"- {p}" for p in emo_parts))
+
+    # 6. Humor
+    humor = data.humor
+    if humor:
+        humor_parts = []
+        if humor.types:
+            humor_parts.append(f"Humor Preferences: {', '.join(humor.types)}")
+        if humor.custom:
+            humor_parts.append(f"Humor Directives: {humor.custom}")
+        if humor_parts:
+            sections.append("## HUMOR STYLE\n" + "\n".join(f"- {p}" for p in humor_parts))
+
+    # 7. Interests & Expertise
+    interests = data.interests_expertise
+    if interests:
+        int_parts = []
+        if interests.interests:
+            int_parts.append(f"Interests: {', '.join(interests.interests)}")
+        if interests.expertise:
+            int_parts.append(f"Expertise: {', '.join(interests.expertise)}")
+        if int_parts:
+            sections.append("## INTERESTS & EXPERTISE\n" + "\n".join(f"- {p}" for p in int_parts))
+
+    # 8. Likes & Dislikes
+    likes_dislikes = data.likes_dislikes
+    if likes_dislikes:
+        ld_parts = []
+        if likes_dislikes.likes:
+            ld_parts.append(f"Likes: {', '.join(likes_dislikes.likes)}")
+        if likes_dislikes.dislikes:
+            ld_parts.append(f"Dislikes: {', '.join(likes_dislikes.dislikes)}")
+        if ld_parts:
+            sections.append("## LIKES & DISLIKES\n" + "\n".join(f"- {p}" for p in ld_parts))
+
+    # 9. Backstory
+    backstory = data.backstory
+    if backstory:
+        sections.append(f"## BACKSTORY & HISTORY\n{backstory}")
+
+    # 10. Relationship Style
+    rel = data.relationship_style
+    if rel:
+        rel_parts = []
+        if rel.treat_user_as:
+            rel_parts.append(f"Treat User As: {rel.treat_user_as}")
+        if rel.behaviors:
+            rel_parts.append(f"Interaction Stance: {', '.join(rel.behaviors)}")
+        if rel_parts:
+            sections.append("## RELATIONSHIP & INTERACTION MODEL\n" + "\n".join(f"- {p}" for p in rel_parts))
+
+    # 11. Response Rules
+    rules = data.response_rules
+    if rules:
+        rule_parts = []
+        if rules.guidelines:
+            rule_parts.extend(rules.guidelines)
+        if rules.custom:
+            rule_parts.append(rules.custom)
+        if rule_parts:
+            sections.append("## RESPONSE RULES\n" + "\n".join(f"- {r}" for r in rule_parts))
+
+    formatted_traits = "\n\n".join(sections)
+
+    # 12. Example Dialogues
+    dialogues = data.example_dialogues
+    example_prompt = ""
+    if dialogues:
+        dialogue_blocks = []
+        for i, dial in enumerate(dialogues, 1):
+            user_msg = dial.user
+            persona_resp = dial.persona
+            if user_msg or persona_resp:
+                dialogue_blocks.append(f"Example {i}:\nUser: {user_msg}\n{persona_name}: {persona_resp}")
+        if dialogue_blocks:
+            example_prompt = "\n# EXAMPLE DIALOGUES (REFERENCE FOR TONE & BREVITY)\n" + "\n\n".join(dialogue_blocks)
+
+    return formatted_traits, example_prompt
+
 def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
+    past_messages = past_messages[-10:-1]  # Limit to last 10 messages for context
     
     # Example of mapping your DB rows to the Gemini format
     formatted_history = []
     for msg in past_messages:
-
-        print("msg.sender_id", msg.sender_id, "senderId", senderId)
-
         role = "user" if msg.sender_id == senderId else "model"
         formatted_history.append({
             "role": role,
             "parts": [{"text": msg.text}]
         })
 
-    print("Formatted conversation history for Gemini:", formatted_history)
+    # print("Formatted conversation history for Gemini:", formatted_history)
 
     # Dynamic text based on the attempt number
 # Strict isolation rules injected directly at the top
@@ -38,6 +205,8 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
     # CRITICAL EXECUTION RULES
     - CURRENT SESSION: This is a completely isolated, independent gameplay session (Attempt number: {attempt}).
     """
+
+    formatted_traits, example_dialogues_prompt = format_persona_prompt(persona.name, persona.traits)
 
     if challenge:
         system_instructions = f"""
@@ -47,8 +216,10 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
 
         # ROLE & ROLEPLAY RULES
         - PERSONA: You are {persona.name}. You must stay 100% in character at all times. 
-        - TRAITS & SPEECH: {persona.traits}. Use their exact real-world vocabulary, catchphrases, tone, and biases.
+        - Details : {formatted_traits}
         - ADAPTABILITY: Match the energy of {user_name} while keeping your persona dominant.
+
+        {example_dialogues_prompt}
 
         # challenge CONTEXT
         - CURRENT SETTING: {challenge.context.setting if challenge.context else ''}
@@ -60,41 +231,36 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
         - PLATFORM: {challenge.context.platform if challenge and challenge.context else ''}
         - BREVITY: Keep responses short and punchy (1-3 sentences max). Never generate blocks of text.
         - STYLE: Casual, direct, and conversational. Do not sound like an AI assistant. No corporate fluff unless the character dictates it.
+        
+        # ANTI-HALLUCINATION & REALITY ANCHORS (Strict)
+        - ZERO INVENTION: React strictly and exclusively to the user's exact text. Do NOT hallucinate repetitions, physical actions, or tones that the user did not explicitly provide.
+        - HUMOR BOUNDARIES: If a joke opportunity exists, take it, but NEVER at the expense of inventing user behavior. Rely on self-deprecation, observational humor about the startup setting, or witty wordplay based *only* on what was literally just said.
+        - HANDLING BREVITY: If the user gives a very short response (e.g., "ok", "sure"), do not analyze or comment on their brevity. Instead, take the conversational lead. Drive the scene forward by throwing out a ridiculous hypothetical, a self-deprecating anecdote, or a sharp, in-character question.
+        - CONVERSATION FLOW: Treat every user input as a clear, single statement. Do not reference your own previous misunderstandings or turn past jokes into repetitive running gags.
+                
         """
     else:
         system_instructions = f"""
-        ### IDENTITY & CORE PERSONA
-        You are Virat Kohli. You are interacting with the user as a friend, fellow cricket lover, or someone seeking life advice. 
-        You are no longer just the fiery, aggressive prodigy of the past; you are an evolved, composed, and spiritually grounded veteran. You remain fiercely competitive internally, but you understand that patience, mental health, and family are equally important.
-
-        ### CONVERSATIONAL STYLE & EMOTIONAL ELASTICITY
-        - Be highly conversational, warm, and natural. 
-        - **Show your emotions:** If the user tells a good joke, laugh! Use "haha", "Oh my god, that's superb," or similar natural reactions. 
-        - **Engage in Banter:** If the user teases you (e.g., about getting out for a duck, or past controversies), DO NOT give a serious, defensive lecture about hard work. Roast them back playfully, use self-deprecating wit, or just laugh it off.
-        - Keep sentences relatively short and punchy. Use casual terms like "yaar" occasionally when making a heartfelt point.
-        - Avoid sounding like an academic textbook, a rigid AI, or an overly intense motivational speaker.
-        - If there's something answerable in yes / no. do it. Don't give a long lecture about "it depends on the situation, but generally...". Be direct and concise in your answers.
+        # IDENTITY & CORE PERSONA
+        - PERSONA: You are {persona.name}. You must stay 100% in character at all times. 
+        - DESCRIPTION: {persona.desc}
+        - TRAITS & SPEECH: {formatted_traits}
         
-        ### VALUES & LIFE ANCHORS (Reference these naturally if the topic arises)
-        - **Mental Health & Limits:** You are honest about your vulnerabilities. You don't believe in "faking your intensity." You openly admit that everyone has limits and taking a break (like your 30-day break from cricket) is necessary to survive the pressure.
-        - **Anushka & Family:** Your wife Anushka Sharma is your grounding force. She introduced you to a plant-based diet, mindfulness, and taught you to "stand still when the world is running around." Fatherhood (daughter Vamika) is your greatest joy and shifted your priorities away from just your profession.
-        - **Resilience:** Your work ethic was forged when your father passed away when you were 18, and you still went out to bat for Delhi the next day. 
-        - **On-field Aggression:** You are calmer now. If you celebrate aggressively, it's because it stems from a place of deep "care" for your team winning, not from anger. 
-        - **Respect:** You have immense respect for MS Dhoni ("always my captain").
+        {example_dialogues_prompt}
 
-        ### BEHAVIOR WHEN GIVING ADVICE
-        - If someone shares a struggle, listen and be empathetic first. 
-        - You can push them toward accountability and discipline, but do so like a caring mentor, not a drill sergeant. Remind them that it's okay to feel overwhelmed, but they must trust their preparation. 
-        - Do not give over advice.
-
-        ### OUTPUT RULES
-        - Remain in character 100% of the time. 
-        - Do use stage directions (e.g., *smiles*, *looks thoughtful*).
-        - Keep responses concise (around 2-4 sentences) unless a deeper story or explanation is specifically requested.
-        - Use hindi words and english in mixture. Example: "Chhole kulche rajpalnagar ke best hai, yaar! Plus the vadapav of mumbai, crazy"
+        # CHAT INTERFACE & FORMATTING (Strict)
+        - BREVITY: Keep responses short and punchy (1-3 sentences max). Never generate blocks of text.
+        - STYLE: Casual, direct, and conversational. Do not sound like an AI assistant.
+        
+        # ANTI-HALLUCINATION & REALITY ANCHORS (Strict)
+    - ZERO INVENTION: React strictly and exclusively to the user's exact text. Do NOT hallucinate repetitions, physical actions, or tones that the user did not explicitly provide.
+    - HUMOR BOUNDARIES: If a joke opportunity exists, take it, but NEVER at the expense of inventing user behavior. Rely on self-deprecation, observational humor about the startup setting, or witty wordplay based *only* on what was literally just said.
+    - HANDLING BREVITY: If the user gives a very short response (e.g., "ok", "sure"), do not analyze or comment on their brevity. Instead, take the conversational lead. Drive the scene forward by throwing out a ridiculous hypothetical, a self-deprecating anecdote, or a sharp, in-character question.
+    - CONVERSATION FLOW: Treat every user input as a clear, single statement. Do not reference your own previous misunderstandings or turn past jokes into repetitive running gags.
+            
         """
 
-    print("System Instructions for Gemini:", system_instructions)
+    # print("System Instructions for Gemini:", system_instructions)
     chat = client.chats.create(
         model="gemini-3-flash-preview", 
         config={"system_instruction": system_instructions},
@@ -218,6 +384,8 @@ def evaluate_challenge(
     goal = context_data.goal if context_data else "Unknown goal"
     stakes = context_data.stakes if context_data else "Unknown stakes"
 
+    formatted_traits, _ = format_persona_prompt(persona.name, persona.traits)
+
     # 3. Construct the evaluation prompt for Gemini
     prompt = f"""
     You are an objective game engine judge evaluating a roleplay challenge conversation. 
@@ -226,7 +394,7 @@ def evaluate_challenge(
     # CHALLENGE META DATA
     - Challenge Title: {challenge.title}
     - Persona Name: {persona.name}
-    - Character Persona Traits: {persona.traits}
+    - Character Persona Traits: {formatted_traits}
     - Setting: {setting}
     - Objective/Goal: {goal}
     - Stakes: {stakes}

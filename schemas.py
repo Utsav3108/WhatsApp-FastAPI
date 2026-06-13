@@ -1,28 +1,108 @@
 
 
 import datetime
-
-from pydantic import BaseModel, ConfigDict
-from typing import Any, List, Optional
-
-from pydantic import BaseModel, Field
+import json
+from typing import Any, List, Optional, Union, Annotated
+from pydantic import BaseModel, ConfigDict, Field, BeforeValidator
 
 from app import enums
+
+class IdentityModel(BaseModel):
+    nickname: Optional[str] = ""
+    profession: Optional[str] = ""
+    age: Optional[str] = ""
+    nationality: Optional[str] = ""
+    gender: Optional[str] = ""
+    intro: Optional[str] = ""
+
+class PersonalitySlidersModel(BaseModel):
+    confidence: Optional[int] = 5
+    humor: Optional[int] = 5
+    warmth: Optional[int] = 5
+    curiosity: Optional[int] = 5
+    competitiveness: Optional[int] = 5
+    patience: Optional[int] = 5
+    emotionality: Optional[int] = 5
+    assertiveness: Optional[int] = 5
+    intelligence: Optional[int] = 5
+    playfulness: Optional[int] = 5
+
+class SpeechStyleModel(BaseModel):
+    tone: Optional[str] = "Casual"
+    modifiers: Optional[List[str]] = []
+    custom: Optional[str] = ""
+
+class EmotionalProfileModel(BaseModel):
+    traits: Optional[List[str]] = []
+    custom: Optional[str] = ""
+
+class HumorModel(BaseModel):
+    types: Optional[List[str]] = []
+    custom: Optional[str] = ""
+
+class InterestsExpertiseModel(BaseModel):
+    interests: Optional[List[str]] = []
+    expertise: Optional[List[str]] = []
+
+class LikesDislikesModel(BaseModel):
+    likes: Optional[List[str]] = []
+    dislikes: Optional[List[str]] = []
+
+class RelationshipStyleModel(BaseModel):
+    treat_user_as: Optional[str] = "Friend"
+    behaviors: Optional[List[str]] = []
+
+class ResponseRulesModel(BaseModel):
+    guidelines: Optional[List[str]] = []
+    custom: Optional[str] = ""
+
+class DialogueExampleModel(BaseModel):
+    user: str
+    persona: str
+
+class StructuredTraits(BaseModel):
+    identity: Optional[IdentityModel] = None
+    personality_sliders: Optional[PersonalitySlidersModel] = None
+    custom_traits: Optional[List[str]] = []
+    values: Optional[List[str]] = []
+    speech_style: Optional[SpeechStyleModel] = None
+    emotional_profile: Optional[EmotionalProfileModel] = None
+    humor: Optional[HumorModel] = None
+    interests_expertise: Optional[InterestsExpertiseModel] = None
+    likes_dislikes: Optional[LikesDislikesModel] = None
+    backstory: Optional[str] = ""
+    relationship_style: Optional[RelationshipStyleModel] = None
+    response_rules: Optional[ResponseRulesModel] = None
+    example_dialogues: Optional[List[DialogueExampleModel]] = []
+
+def parse_traits(v: Any) -> Any:
+    if isinstance(v, str):
+        v_stripped = v.strip()
+        if v_stripped.startswith('{') or v_stripped.startswith('['):
+            try:
+                return json.loads(v)
+            except Exception:
+                pass
+    return v
+
+TraitsType = Annotated[Union[StructuredTraits, str], BeforeValidator(parse_traits)]
 
 class PersonaCreate(BaseModel):
     name: str
     desc: str
-    traits: str
+    traits: TraitsType
     image_url: str
     is_human: Optional[bool] = False
+    category: Optional[str] = "Custom Creator"
 
 class PersonaResponse(BaseModel):
     id: int
     name: str
     desc: str
-    traits: str
+    traits: TraitsType
     image_url: str
     is_human: bool = False
+    category: str = "Custom Creator"
 
     class Config:
         from_attributes = True
@@ -64,7 +144,7 @@ class ChallengeContextBase(BaseModel):
 class ChallengeDifficulty(str, Enum):
     beginner = "beginner"
     intermediate = "intermediate"
-    advance = "advance"
+    advance = "advanced"
 
 class ChallengeContextCreate(ChallengeContextBase):
     pass

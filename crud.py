@@ -106,6 +106,7 @@ async def save_persona(db: AsyncSession, persona: schemas.PersonaCreate):
         db_persona.traits = persona.traits
         db_persona.image_url = persona.image_url
         db_persona.is_human = persona.is_human
+        db_persona.category = persona.category
         db.add(db_persona)
         await db.commit()
         await db.refresh(db_persona)
@@ -121,7 +122,8 @@ async def create_persona(db: AsyncSession, persona: schemas.PersonaCreate):
         desc=persona.desc,
         traits=persona.traits,
         image_url=persona.image_url,
-        is_human=persona.is_human
+        is_human=persona.is_human,
+        category=persona.category
     )
     db.add(db_persona)
     await db.commit()

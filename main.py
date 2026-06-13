@@ -23,12 +23,17 @@ challenges_path = os.path.join(BASE_DIR, "challenge.json")
 async def init_models():
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
-        # try:
-        #     from sqlalchemy import text
-        #     await conn.execute(text("ALTER TABLE personas ADD COLUMN is_human BOOLEAN DEFAULT 0;"))
-        #     print("Successfully added is_human column to personas table")
-        # except Exception as e:
-        #     print(f"Migration info/warning (column may already exist): {e}")
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE personas ADD COLUMN is_human BOOLEAN DEFAULT 0;"))
+        except Exception:
+            pass
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE personas ADD COLUMN category VARCHAR DEFAULT 'Custom Creator';"))
+            print("Successfully added category column to personas table")
+        except Exception as e:
+            pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,19 +44,21 @@ async def lifespan(app: FastAPI):
     # Ensure models are created asynchronously
     await init_models()
 
-    # Load and upsert personas
-    with open(file_path, "r", encoding="utf-8") as f:
-        personas_data = json.load(f)
+    # # Load and upsert personas
+    # with open(file_path, "r", encoding="utf-8") as f:
+    #     personas_data = json.load(f)
 
-    async with SessionLocal() as db:
-        for persona in personas_data:
-            persona_in = schemas.PersonaCreate(
-                name=persona["name"],
-                desc=persona["desc"],
-                traits=persona["traits"],
-                image_url=persona["image_url"],
-            )
-            await crud.save_persona(db, persona_in)
+    # async with SessionLocal() as db:
+    #     for persona in personas_data:
+    #         persona_in = schemas.PersonaCreate(
+    #             name=persona["name"],
+    #             desc=persona["desc"],
+    #             traits=persona["traits"],
+    #             image_url=persona["image_url"],
+    #             is_human=persona.get("is_human", False),
+    #             category=persona.get("category", "Custom Creator")
+    #         )
+    #         await crud.save_persona(db, persona_in)
 
     yield
 

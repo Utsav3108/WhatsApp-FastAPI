@@ -1,12 +1,36 @@
 import uuid
-
+import json
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, Enum, UniqueConstraint
+from sqlalchemy.types import TypeDecorator, TEXT
 from app.database import Base
 from sqlalchemy import DateTime
 from datetime import datetime, timezone
 import enum
 
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+
+class SafeJSON(TypeDecorator):
+    impl = TEXT
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if hasattr(value, "model_dump"):
+            value = value.model_dump()
+        elif hasattr(value, "dict"):
+            value = value.dict()
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            return value
 
 
 # ChallengeContext table
@@ -42,9 +66,10 @@ class Persona(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
     desc = Column(String)
-    traits = Column(String)
+    traits = Column(SafeJSON)
     image_url = Column(String, default="")
     is_human = Column(Boolean, default=False, nullable=True)
+    category = Column(String, default="Custom Creator", nullable=True)
 
 class Message(Base):
     __tablename__ = "messages"

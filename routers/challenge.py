@@ -11,8 +11,13 @@ from app.routers.auth import get_current_user
 router = APIRouter()
 
 @router.get("/challenges", response_model=list[schemas.ChallengeResponse])
-async def get_all_challenges(db: AsyncSession = Depends(get_db)):
-    challenges = await challenge_service.get_all_challenges(db)
+async def get_all_challenges(
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db)
+):
+    challenges = await challenge_service.get_all_challenges(db, q=q, limit=limit, offset=offset)
     return challenges
 
 @router.post("/challenges", response_model=schemas.ChallengeResponse)
@@ -57,14 +62,20 @@ async def setup_challenge(
 @router.get("/challenge-attempts/{challenge_id}", response_model=list[schemas.ChallengeAttemptResponse])
 async def get_challenge_attempts(
     challenge_id: str,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: models.Persona = Depends(get_current_user)
 ):
-    attempts = await challenge_service.get_challenge_attempts(db, challenge_id, user_id=current_user.id)
+    attempts = await challenge_service.get_challenge_attempts(
+        db, challenge_id, user_id=current_user.id, limit=limit, offset=offset
+    )
     return attempts
 
 @router.get("/challenge-sessions/active", response_model=list[schemas.ChallengeSessionResponse])
 async def get_active_challenge_sessions(
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: models.Persona = Depends(get_current_user)
 ):
@@ -72,7 +83,16 @@ async def get_active_challenge_sessions(
     stmt = select(models.ChallengeSession).filter(
         models.ChallengeSession.user_id == current_user.id,
         models.ChallengeSession.status == "active"
-    )
+    ).limit(limit).offset(offset)
     res = await db.execute(stmt)
     sessions = res.scalars().all()
     return sessions
+
+@router.get("/challenges/dashboard", response_model=schemas.ChallengeDashboardResponse)
+async def get_challenges_dashboard(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
+):
+    dashboard = await challenge_service.get_challenges_dashboard(db, current_user_id=current_user.id)
+    return dashboard
+

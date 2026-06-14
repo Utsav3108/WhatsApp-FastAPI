@@ -11,12 +11,13 @@ async def get_persona_by_id(db: AsyncSession, persona_id: int):
     else: 
         raise ValueError(f"Persona with ID {persona_id} not found.")
 
-async def get_personas_user_chatted_with(db: AsyncSession, user_id: int):
+async def get_personas_user_chatted_with(db: AsyncSession, user_id: int, limit: int = 50, offset: int = 0):
     """Fetches the list of personas a user has chatted with.
     Checks the cache first before querying the database. If no personas are found, 
     returns Donald Trump as default."""
 
-    key = cache.create_personas_chat_key(user_id=user_id)
+    base_key = cache.create_personas_chat_key(user_id=user_id)
+    key = f"{base_key}:{limit}:{offset}"
 
     # Check cache first
     cached_personas = cache.retrieve_cache(key)
@@ -25,7 +26,7 @@ async def get_personas_user_chatted_with(db: AsyncSession, user_id: int):
         return cached_personas
     
     # If not in cache, fetch from database
-    personas = await crud.get_personas_user_chatted_with(db, user_id)
+    personas = await crud.get_personas_user_chatted_with(db, user_id, limit=limit, offset=offset)
 
     if personas == []:
         persona = await crud.get_persona_by_name(db, "Donald Trump") # Default: Donald Trump
@@ -38,10 +39,11 @@ async def get_personas_user_chatted_with(db: AsyncSession, user_id: int):
     
     return personas_response
 
-async def search_personas(db: AsyncSession, query: str):
+async def search_personas(db: AsyncSession, query: str, limit: int = 50, offset: int = 0):
     """Searches for personas based on a query string. Checks cache first before querying database."""
 
-    key = cache.create_persona_search_key(query)
+    base_key = cache.create_persona_search_key(query)
+    key = f"{base_key}:{limit}:{offset}"
 
     # Check cache first
     cached_results = cache.retrieve_cache(key)
@@ -50,7 +52,7 @@ async def search_personas(db: AsyncSession, query: str):
         return cached_results
     
     # If not in cache, fetch from database
-    personas = await crud.search_personas(db, query)
+    personas = await crud.search_personas(db, query, limit=limit, offset=offset)
 
     personas_response = [PersonaResponse.model_validate(p).model_dump() for p in personas]
 

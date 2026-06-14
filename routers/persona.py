@@ -19,19 +19,26 @@ async def create_persona(persona_in: schemas.PersonaCreate, db: AsyncSession = D
     return persona
 
 @router.get("/search-personas/{query}", response_model=list[schemas.PersonaResponse])
-async def search_personas(query: str, db: AsyncSession = Depends(get_db)):
-    response = await persona_service.search_personas(db, query)
+async def search_personas(
+    query: str,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db)
+):
+    response = await persona_service.search_personas(db, query, limit=limit, offset=offset)
     return response
 
 @router.get("/personas/{user_id}", response_model=list[schemas.PersonaResponse])
 async def get_personas_user_chatted_with(
     user_id: int,
+    limit: int = 50,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: models.Persona = Depends(get_current_user)
 ):
     if user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: Cannot access other user's chat history")
-    response = await persona_service.get_personas_user_chatted_with(db, user_id)
+    response = await persona_service.get_personas_user_chatted_with(db, user_id, limit=limit, offset=offset)
     return response
 
 @router.get("/messages", response_model=list[schemas.MessageResponse])

@@ -18,9 +18,10 @@ async def create_challenge_attempt(db: AsyncSession, *, challenge_id: str, user_
     await db.refresh(db_attempt)
     return db_attempt
 
-async def get_challenge_attempts_by_challenge_id(db: AsyncSession, challenge_id: str, user_id: int = None):
+async def get_challenge_attempts_by_challenge_id(db: AsyncSession, challenge_id: str, user_id: int = None, limit: int = 50, offset: int = 0):
     query = select(models.ChallengeAttempt).filter(models.ChallengeAttempt.challenge_id == challenge_id)
     if user_id is not None:
         query = query.filter(models.ChallengeAttempt.user_id == user_id)
+    query = query.order_by(models.ChallengeAttempt.created_at.desc()).limit(limit).offset(offset)
     result = await db.execute(query)
     return result.scalars().all()

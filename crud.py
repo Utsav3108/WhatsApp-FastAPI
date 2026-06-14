@@ -1,5 +1,6 @@
-from datetime import datetime
-from sqlalchemy import select, and_, or_
+from datetime import datetime, timedelta
+import hashlib
+from sqlalchemy import select, and_, or_, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app import models, schemas
@@ -48,9 +49,12 @@ async def get_messages_by_challenge_session_id(db: AsyncSession, challenge_sessi
 # personas CRUD
 # --------------------------------------------------------------------------
 
-async def search_personas(db: AsyncSession, query: str):
+async def search_personas(db: AsyncSession, query: str, limit: int = 50, offset: int = 0):
     result = await db.execute(
-        select(models.Persona).filter(models.Persona.name.ilike(f"%{query}%"))
+        select(models.Persona)
+        .filter(models.Persona.name.ilike(f"%{query}%"))
+        .limit(limit)
+        .offset(offset)
     )
     return result.scalars().all()
 
@@ -72,7 +76,7 @@ async def get_all_personas(db: AsyncSession, limit: int = 50, offset: int = 0):
     )
     return result.scalars().all()
 
-async def get_personas_user_chatted_with(db: AsyncSession, user_id: int):
+async def get_personas_user_chatted_with(db: AsyncSession, user_id: int, limit: int = 50, offset: int = 0):
     # Get all unique persona IDs that the user has chatted with in a personalized way (no challenge session)
     sent_res = await db.execute(
         select(models.Message.receiver_id)
@@ -92,7 +96,12 @@ async def get_personas_user_chatted_with(db: AsyncSession, user_id: int):
     if not persona_ids:
         return []
         
-    result = await db.execute(select(models.Persona).filter(models.Persona.id.in_(persona_ids)))
+    result = await db.execute(
+        select(models.Persona)
+        .filter(models.Persona.id.in_(persona_ids))
+        .limit(limit)
+        .offset(offset)
+    )
     return result.scalars().all()
 
 async def save_persona(db: AsyncSession, persona: schemas.PersonaCreate):
@@ -157,13 +166,23 @@ async def update_user_profile(db: AsyncSession, user_id: int, profile_in: schema
 # Challenge CRUD
 # --------------------------------------------------------------------------
 
-async def get_all_challenges(db: AsyncSession):
-    result = await db.execute(
+async def get_all_challenges(db: AsyncSession, q: str | None = None, limit: int = 50, offset: int = 0):
+    stmt = (
         select(Challenge).options(
             selectinload(Challenge.context),
             selectinload(Challenge.selected_persona)
         )
+        .filter(Challenge.for_user == True)
     )
+    if q:
+        q_filter = f"%{q}%"
+        stmt = stmt.filter(
+            Challenge.title.ilike(q_filter) |
+            Challenge.short_description.ilike(q_filter) |
+            Challenge.subtitle.ilike(q_filter)
+        )
+    stmt = stmt.limit(limit).offset(offset)
+    result = await db.execute(stmt)
     return result.scalars().all()
 
 async def get_challenge_by_id(db: AsyncSession, challenge_id: str):
@@ -208,7 +227,8 @@ def _create_challenge_model(challenge: schemas.ChallengeCreate) -> Challenge:
         difficulty_settings=challenge.difficulty_settings,
         estimated_duration_minutes=challenge.estimated_duration_minutes,
         challenge_rules=challenge.challenge_rules,
-        selected_persona_id=challenge.selected_persona_id
+        selected_persona_id=challenge.selected_persona_id,
+        created_at=challenge.created_at if getattr(challenge, 'created_at', None) is not None else datetime.now()
     )
 
 async def update_challenge(db: AsyncSession, challenge: Challenge):
@@ -274,6 +294,97 @@ async def upsert_challenges(db: AsyncSession, challenge: schemas.ChallengeCreate
         await db.commit()
 
     return await get_challenge_by_id(db, db_challenge.id)
+
+async def get_daily_challenge(db: AsyncSession) -> Challenge | None:
+    result = await db.execute(
+        select(Challenge)
+        .options(
+            selectinload(Challenge.context),
+            selectinload(Challenge.selected_persona)
+        )
+        .filter(Challenge.for_user == True)
+    )
+    challenges = result.scalars().all()
+    if not challenges:
+        return None
+        
+    sorted_challenges = sorted(challenges, key=lambda c: c.id)
+    today_str = datetime.utcnow().date().isoformat()
+    hash_val = int(hashlib.md5(today_str.encode('utf-8')).hexdigest(), 16)
+    index = hash_val % len(sorted_challenges)
+    return sorted_challenges[index]
+
+async def get_trending_challenges(db: AsyncSession, current_user_id: int) -> list[Challenge]:
+    user_active_query = select(ChallengeSession.challenge_id).filter(
+        ChallengeSession.user_id == current_user_id,
+        ChallengeSession.status == 'active'
+    )
+    user_active_res = await db.execute(user_active_query)
+    excluded_challenge_ids = [r[0] for r in user_active_res.all()]
+
+    trending_query = (
+        select(ChallengeSession.challenge_id, func.count(ChallengeSession.id).label('active_count'))
+        .filter(
+            ChallengeSession.status == 'active'
+        )
+    )
+    if excluded_challenge_ids:
+        trending_query = trending_query.filter(ChallengeSession.challenge_id.not_in(excluded_challenge_ids))
+        
+    trending_query = (
+        trending_query.group_by(ChallengeSession.challenge_id)
+        .order_by(desc(func.count(ChallengeSession.id)))
+        .limit(5)
+    )
+    trending_res = await db.execute(trending_query)
+    trending_ids = [r[0] for r in trending_res.all()]
+
+    if not trending_ids:
+        return []
+
+    challenges_query = select(Challenge).options(
+        selectinload(Challenge.context),
+        selectinload(Challenge.selected_persona)
+    ).filter(Challenge.id.in_(trending_ids))
+    challenges_res = await db.execute(challenges_query)
+    challenges_map = {c.id: c for c in challenges_res.scalars().all()}
+    
+    return [challenges_map[cid] for cid in trending_ids if cid in challenges_map]
+
+async def get_recommended_challenges(db: AsyncSession) -> list[Challenge]:
+    stmt = (
+        select(Challenge)
+        .options(
+            selectinload(Challenge.context),
+            selectinload(Challenge.selected_persona)
+        )
+        .outerjoin(ChallengeAttempt, Challenge.id == ChallengeAttempt.challenge_id)
+        .filter(Challenge.for_user == True)
+        .group_by(Challenge.id)
+        .order_by(desc(func.count(ChallengeAttempt.id)))
+        .limit(5)
+    )
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
+async def get_recently_added_challenges(db: AsyncSession) -> list[Challenge]:
+    cutoff_time = datetime.now() - timedelta(hours=48)
+    stmt = (
+        select(Challenge)
+        .options(
+            selectinload(Challenge.context),
+            selectinload(Challenge.selected_persona)
+        )
+        .filter(
+            Challenge.for_user == True,
+            Challenge.created_at.isnot(None),
+            Challenge.created_at >= cutoff_time
+        )
+        .order_by(desc(Challenge.created_at))
+    )
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
 
 # --------------------------------------------------------------------------
 # ChallengeSession CRUD

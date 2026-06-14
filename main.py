@@ -30,6 +30,12 @@ async def init_models():
             pass
         try:
             from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE challenges ADD COLUMN created_at DATETIME;"))
+            print("Successfully added created_at column to challenges table")
+        except Exception:
+            pass
+        try:
+            from sqlalchemy import text
             await conn.execute(text("ALTER TABLE personas ADD COLUMN category VARCHAR DEFAULT 'Custom Creator';"))
             print("Successfully added category column to personas table")
         except Exception as e:

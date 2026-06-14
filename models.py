@@ -137,6 +137,7 @@ class Challenge(Base):
 
     selected_persona_id = Column(Integer, ForeignKey("personas.id"), nullable=True)  # New field for selected persona
     selected_persona = relationship("Persona", foreign_keys=[selected_persona_id])
+    created_at = Column(DateTime, default=datetime.now)
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
 from sqlalchemy.sql import func

@@ -1,8 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from app import models, schemas, crud, crud_challenge_attempt
 
-async def get_all_challenges(db: AsyncSession) -> list[schemas.ChallengeResponse]:
-    results = await crud.get_all_challenges(db)
+async def get_all_challenges(db: AsyncSession, q: str | None = None, limit: int = 50, offset: int = 0) -> list[schemas.ChallengeResponse]:
+    results = await crud.get_all_challenges(db, q=q, limit=limit, offset=offset)
     return [schemas.ChallengeResponse.model_validate(r) for r in results]
 
 async def get_challenge_by_id(db: AsyncSession, challenge_id: str) -> schemas.ChallengeResponse | None:
@@ -39,9 +39,27 @@ async def set_storyline(db: AsyncSession, challenge_id: str, storyline: schemas.
     result = await crud.update_challenge(db, challenge)
     return schemas.ChallengeResponse.model_validate(result)
 
-async def get_challenge_attempts(db: AsyncSession, challenge_id: str, user_id: int = None) -> list[schemas.ChallengeAttemptResponse]:
-    attempts = await crud_challenge_attempt.get_challenge_attempts_by_challenge_id(db, challenge_id, user_id)
+async def get_challenge_attempts(db: AsyncSession, challenge_id: str, user_id: int = None, limit: int = 50, offset: int = 0) -> list[schemas.ChallengeAttemptResponse]:
+    attempts = await crud_challenge_attempt.get_challenge_attempts_by_challenge_id(db, challenge_id, user_id, limit=limit, offset=offset)
     return [schemas.ChallengeAttemptResponse.model_validate(a) for a in attempts]
+
+async def get_challenges_dashboard(db: AsyncSession, current_user_id: int) -> schemas.ChallengeDashboardResponse:
+    daily = await crud.get_daily_challenge(db)
+    if daily:
+        attempts = await crud.get_attempts(db, user_id=current_user_id, challenge_id=daily.id)
+        if any(a.won for a in attempts):
+            daily = None
+
+    trending = await crud.get_trending_challenges(db, current_user_id)
+    recommended = await crud.get_recommended_challenges(db)
+    recently_added = await crud.get_recently_added_challenges(db)
+    
+    return schemas.ChallengeDashboardResponse(
+        daily_challenge=schemas.ChallengeResponse.model_validate(daily) if daily else None,
+        trending_challenges=[schemas.ChallengeResponse.model_validate(t) for t in trending],
+        recommended_challenges=[schemas.ChallengeResponse.model_validate(r) for r in recommended],
+        recently_added_challenges=[schemas.ChallengeResponse.model_validate(ra) for ra in recently_added]
+    )
 
 import json
 

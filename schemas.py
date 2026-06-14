@@ -213,6 +213,7 @@ class ChallengeBase(BaseModel):
 
     for_user: bool = True # New field to indicate if the challenge is for users or for personas
     selected_persona_id: Optional[int] = None  # New field for selected persona ID
+    created_at: Optional[datetime.datetime] = None
 
 class ChallengeCreate(ChallengeBase):
     id: str
@@ -308,3 +309,9 @@ class EvaluationResponse(BaseModel):
     reasoning: str = Field(
         description="A brief, 1-2 sentence explanation of why this status was selected based on the latest context and messages."
     )
+
+class ChallengeDashboardResponse(BaseModel):
+    daily_challenge: Optional[ChallengeResponse] = None
+    trending_challenges: List[ChallengeResponse]
+    recommended_challenges: List[ChallengeResponse]
+    recently_added_challenges: List[ChallengeResponse]

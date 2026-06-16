@@ -217,6 +217,32 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
         
         self.assertGreaterEqual(session.elapsed_seconds, 30)
         self.assertIsNone(session.last_resumed_at)
+        
+        # Resume the session again for a final 15-second segment
+        session.last_resumed_at = datetime.utcnow() - timedelta(seconds=15)
+        session.status = 'active'
+        await self.db.commit()
+        
+        # Complete the session
+        from app.services.challenge_session import complete_challenge_session
+        from app.schemas import ChallengeCompletion
+        completion_req = ChallengeCompletion(
+            challenge_session_id=session.id,
+            challenge_status="won",
+            reason="Completed successfully",
+            user_id=self.user1.id,
+            challenge_id=self.challenge_b.id
+        )
+        await complete_challenge_session(self.db, completion_req)
+        
+        # Verify that the created ChallengeAttempt has the correct time_taken_seconds (30 + 15 = 45 seconds)
+        from app.models import ChallengeAttempt
+        from sqlalchemy import select
+        stmt = select(ChallengeAttempt).filter(ChallengeAttempt.challenge_session_id == session.id)
+        attempt = (await self.db.execute(stmt)).scalars().first()
+        self.assertIsNotNone(attempt)
+        self.assertGreaterEqual(attempt.time_taken_seconds, 44)
+        self.assertLessEqual(attempt.time_taken_seconds, 48)
 
 if __name__ == "__main__":
     unittest.main()

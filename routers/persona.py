@@ -107,7 +107,8 @@ async def get_user_profile(
             persona_name=persona_name,
             won=attempt.won,
             created_at=attempt.created_at,
-            challenge_session_id=attempt.challenge_session_id
+            challenge_session_id=attempt.challenge_session_id,
+            persona_id=attempt.persona_id
         ))
         
     return schemas.UserProfileResponse(

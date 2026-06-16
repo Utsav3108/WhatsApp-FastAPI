@@ -180,9 +180,13 @@ async def complete_challenge_session(db: AsyncSession, challenge_details = schem
     challenge_id = active_challenge_session.challenge_id if hasattr(active_challenge_session, 'challenge_id') else None
     role_mode = getattr(active_challenge_session, 'role_mode', None)
     # Calculate time taken (if available)
-    time_taken_seconds = None
-    if hasattr(active_challenge_session, 'started_at') and hasattr(active_challenge_session, 'completed_at') and active_challenge_session.completed_at and active_challenge_session.started_at:
-        time_taken_seconds = int((active_challenge_session.completed_at - active_challenge_session.started_at).total_seconds())
+    time_taken_seconds = active_challenge_session.elapsed_seconds if hasattr(active_challenge_session, 'elapsed_seconds') else 0
+    if hasattr(active_challenge_session, 'last_resumed_at') and hasattr(active_challenge_session, 'completed_at') and active_challenge_session.completed_at and active_challenge_session.last_resumed_at:
+        last_resumed = active_challenge_session.last_resumed_at.replace(tzinfo=None)
+        completed = active_challenge_session.completed_at.replace(tzinfo=None)
+        delta = (completed - last_resumed).total_seconds()
+        if delta > 0:
+            time_taken_seconds += int(delta)
     # Determine win status from challenge_details
 
     print(f"Challenge completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")

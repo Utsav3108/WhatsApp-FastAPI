@@ -127,6 +127,7 @@ class ProfileAttemptLogItem(BaseModel):
     won: bool
     created_at: datetime.datetime
     challenge_session_id: int
+    persona_id: int
 
 class ProfileStats(BaseModel):
     total_challenges_attempted: int

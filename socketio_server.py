@@ -121,6 +121,39 @@ async def complete_challenge(sid, user_id, challenge_id, challenge_session_id, e
             print(f"Error in complete_challenge event: {e}")
             traceback.print_exc()
 
+@sio.on('complete_challenge')
+async def handle_complete_challenge(sid, data):
+    """
+    Handle challenge completion events emitted directly by the client (e.g. on timeout).
+    """
+    print(f"Socket.IO: Received complete_challenge event with data: {data}")
+    challenge_session_id = data.get("challenge_session_id")
+    status = data.get("status")
+    reason = data.get("reason", "")
+    
+    if not challenge_session_id:
+        print("no challenge_session_id provided in complete_challenge event")
+        return
+        
+    async with SessionLocal() as db:
+        session = await crud.get_challenge_session_by_id(db, challenge_session_id)
+        if not session:
+            print(f"Challenge session {challenge_session_id} not found in DB")
+            return
+            
+        eval_response = schemas.EvaluationResponse(
+            status=status,
+            reasoning=reason
+        )
+        
+        await complete_challenge(
+            sid=sid,
+            user_id=session.user_id,
+            challenge_id=session.challenge_id,
+            challenge_session_id=challenge_session_id,
+            eval=eval_response
+        )
+
 # --------------------------------------------------------------------------
 # Message Events
 # --------------------------------------------------------------------------

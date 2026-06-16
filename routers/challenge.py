@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from google.genai.errors import ServerError, APIError
 
-from app import schemas, models
+from app import schemas, models, crud
 from app.database import get_db
 from app.services import challenge_service
 from app.services.challenge_session import setup_challenge_session
@@ -95,4 +95,28 @@ async def get_challenges_dashboard(
 ):
     dashboard = await challenge_service.get_challenges_dashboard(db, current_user_id=current_user.id)
     return dashboard
+
+
+@router.post("/challenge-sessions/{session_id}/pause")
+async def pause_challenge_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
+):
+    from datetime import datetime
+    session = await crud.get_challenge_session_by_id(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Challenge session not found")
+    if session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    if session.status == 'active' and session.last_resumed_at:
+        now = datetime.utcnow()
+        delta = (now - session.last_resumed_at.replace(tzinfo=None)).total_seconds()
+        session.elapsed_seconds += int(delta)
+        session.last_resumed_at = None
+        await db.commit()
+        await db.refresh(session)
+        
+    return {"status": "success", "elapsed_seconds": session.elapsed_seconds}
 

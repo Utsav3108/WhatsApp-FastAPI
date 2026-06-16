@@ -104,7 +104,8 @@ async def setup_challenge_session(
         challenge_session_id=session.id,
         intro=storyline,
         status=session.status,
-        total_duration_minutes=challenge.estimated_duration_minutes
+        total_duration_minutes=challenge.estimated_duration_minutes,
+        elapsed_seconds=session.elapsed_seconds
     )
 
 
@@ -114,6 +115,12 @@ async def _build_existing_session_response(
     session,
     message: str
 ) -> schemas.ChallengeSetupResponse:
+
+    from datetime import datetime
+    if session.status == 'active':
+        session.last_resumed_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(session)
 
     conversation_history = await message_service.get_message_by_session_id(
         db,
@@ -135,7 +142,8 @@ async def _build_existing_session_response(
         intro=intro,
         status=session.status,
         total_duration_minutes=challenge.estimated_duration_minutes,
-        conversation_history=conversation_history
+        conversation_history=conversation_history,
+        elapsed_seconds=session.elapsed_seconds
     )
 
 async def complete_challenge_session(db: AsyncSession, challenge_details = schemas.ChallengeCompletion) -> schemas.ChallengeCompletionResponse:

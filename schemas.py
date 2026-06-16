@@ -240,6 +240,7 @@ class ChallengeSetupResponse(BaseModel):
     status: Optional[enums.ChallengeResult] = None
     total_duration_minutes: Optional[int] = None
     conversation_history: Optional[List[MessageResponse]] = None
+    elapsed_seconds: int = 0
     
 
 class ChallengeSessionResponse(BaseModel):

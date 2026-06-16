@@ -51,7 +51,7 @@ async def get_challenges_dashboard(db: AsyncSession, current_user_id: int) -> sc
             daily = None
 
     trending = await crud.get_trending_challenges(db, current_user_id)
-    recommended = await crud.get_recommended_challenges(db)
+    recommended = await crud.get_recommended_challenges(db, user_id=current_user_id)
     recently_added = await crud.get_recently_added_challenges(db)
     
     return schemas.ChallengeDashboardResponse(

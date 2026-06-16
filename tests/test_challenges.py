@@ -30,9 +30,9 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
 
     async def seed_data(self):
         # 2. Seed mock personas
-        self.user1 = Persona(id=1, name="User One", desc="")
-        self.user2 = Persona(id=2, name="User Two", desc="")
-        self.persona3 = Persona(id=3, name="Opponent Three", desc="")
+        self.user1 = Persona(id=1, name="User One", desc="", traits="Friendly", image_url="")
+        self.user2 = Persona(id=2, name="User Two", desc="", traits="Friendly", image_url="")
+        self.persona3 = Persona(id=3, name="Opponent Three", desc="", traits="Friendly", image_url="")
         
         self.db.add_all([self.user1, self.user2, self.persona3])
         await self.db.flush()
@@ -186,6 +186,37 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
         dashboard_other = await get_challenges_dashboard(self.db, current_user_id=self.user2.id)
         self.assertIsNotNone(dashboard_other.daily_challenge)
         self.assertEqual(dashboard_other.daily_challenge.id, daily_id)
+
+    async def test_challenge_session_timer(self):
+        from app.services.challenge_session import setup_challenge_session
+        from app.schemas import ChallengeSetup
+        
+        # Setup challenge session
+        req = ChallengeSetup(
+            challenge_id=self.challenge_b.id,
+            persona_id=self.persona3.id,
+            user_id=self.user1.id
+        )
+        resp = await setup_challenge_session(self.db, req)
+        self.assertIsNotNone(resp.challenge_session_id)
+        self.assertEqual(resp.elapsed_seconds, 0)
+        
+        session = await self.db.get(ChallengeSession, resp.challenge_session_id)
+        self.assertIsNotNone(session.last_resumed_at)
+        
+        # Simulate elapsed time of 30 seconds
+        session.last_resumed_at = datetime.utcnow() - timedelta(seconds=30)
+        await self.db.commit()
+        
+        # Simulate pause logic
+        now = datetime.utcnow()
+        delta = (now - session.last_resumed_at.replace(tzinfo=None)).total_seconds()
+        session.elapsed_seconds += int(delta)
+        session.last_resumed_at = None
+        await self.db.commit()
+        
+        self.assertGreaterEqual(session.elapsed_seconds, 30)
+        self.assertIsNone(session.last_resumed_at)
 
 if __name__ == "__main__":
     unittest.main()

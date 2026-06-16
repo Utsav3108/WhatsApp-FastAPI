@@ -191,6 +191,9 @@ class ChallengeSession(Base):
         nullable=True
     )
 
+    elapsed_seconds = Column(Integer, default=0, nullable=False)
+    last_resumed_at = Column(DateTime(timezone=True), nullable=True)
+
     attempts = relationship("ChallengeAttempt", back_populates="challenge_session", cascade="all, delete-orphan")
 
     challenge = relationship("Challenge")

@@ -351,7 +351,26 @@ async def get_trending_challenges(db: AsyncSession, current_user_id: int) -> lis
     
     return [challenges_map[cid] for cid in trending_ids if cid in challenges_map]
 
-async def get_recommended_challenges(db: AsyncSession) -> list[Challenge]:
+async def get_recommended_challenges(db: AsyncSession, user_id: int | None = None) -> list[Challenge]:
+    excluded_ids = []
+    if user_id is not None:
+        active_res = await db.execute(
+            select(ChallengeSession.challenge_id).filter(
+                ChallengeSession.user_id == user_id,
+                ChallengeSession.status == 'active'
+            )
+        )
+        active_ids = [r[0] for r in active_res.all()]
+
+        attempts_res = await db.execute(
+            select(ChallengeAttempt.challenge_id).filter(
+                ChallengeAttempt.user_id == user_id
+            )
+        )
+        attempt_ids = [r[0] for r in attempts_res.all()]
+
+        excluded_ids = list(set(active_ids + attempt_ids))
+
     stmt = (
         select(Challenge)
         .options(
@@ -360,7 +379,13 @@ async def get_recommended_challenges(db: AsyncSession) -> list[Challenge]:
         )
         .outerjoin(ChallengeAttempt, Challenge.id == ChallengeAttempt.challenge_id)
         .filter(Challenge.for_user == True)
-        .group_by(Challenge.id)
+    )
+    
+    if excluded_ids:
+        stmt = stmt.filter(Challenge.id.not_in(excluded_ids))
+        
+    stmt = (
+        stmt.group_by(Challenge.id)
         .order_by(desc(func.count(ChallengeAttempt.id)))
         .limit(5)
     )
@@ -407,12 +432,14 @@ async def get_existing_session(db: AsyncSession, user_id: int, challenge_id: str
     return result.scalars().first()
 
 async def create_challenge_session(db: AsyncSession, user_id: int, challenge_id: str, persona_id: int, intro: schemas.StorylineResponse):
+    from datetime import datetime
     session = ChallengeSession(
         user_id=user_id,
         challenge_id=challenge_id,
         persona_id=persona_id,
         storyline=intro.storyline,
-        call_to_action=intro.call_to_action
+        call_to_action=intro.call_to_action,
+        last_resumed_at=datetime.utcnow()
     )
     db.add(session)
     await db.commit()

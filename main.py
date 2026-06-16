@@ -60,6 +60,18 @@ async def init_models():
             await conn.execute(text("ALTER TABLE personas ADD COLUMN settings TEXT;"))
         except Exception:
             pass
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE challenge_sessions ADD COLUMN elapsed_seconds INTEGER DEFAULT 0;"))
+            print("Successfully added elapsed_seconds column to challenge_sessions table")
+        except Exception:
+            pass
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE challenge_sessions ADD COLUMN last_resumed_at DATETIME;"))
+            print("Successfully added last_resumed_at column to challenge_sessions table")
+        except Exception:
+            pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

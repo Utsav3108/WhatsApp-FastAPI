@@ -57,8 +57,8 @@ class ResponseRulesModel(BaseModel):
     custom: Optional[str] = ""
 
 class DialogueExampleModel(BaseModel):
-    user: str
-    persona: str
+    user: Optional[str] = ""
+    persona: Optional[str] = ""
 
 class StructuredTraits(BaseModel):
     identity: Optional[IdentityModel] = None

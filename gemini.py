@@ -24,6 +24,11 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
     """
     if isinstance(traits, schemas.StructuredTraits):
         data = traits
+    elif isinstance(traits, dict):
+        try:
+            data = schemas.StructuredTraits.model_validate(traits)
+        except Exception:
+            return str(traits), ""
     elif isinstance(traits, str):
         try:
             data = schemas.StructuredTraits.model_validate_json(traits)

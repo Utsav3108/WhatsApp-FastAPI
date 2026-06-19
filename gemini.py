@@ -14,6 +14,8 @@ dotenv.load_dotenv()  # Load environment variables from .env file
 
 API_KEY = os.getenv("GEMINI_API_KEY")
 
+model = "gemini-3-flash-preview"  # or "gemini-3.5-turbo" for the newer model
+
 client = genai.Client(api_key=API_KEY)
 
 def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTraits, str]) -> tuple[str, str]:
@@ -278,7 +280,7 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
 
     # print("System Instructions for Gemini:", system_instructions)
     chat = client.chats.create(
-        model="gemini-3-flash-preview", 
+        model=model, 
         config={"system_instruction": system_instructions},
         history=formatted_history  
     )
@@ -351,7 +353,7 @@ def create_storyline(challenge: models.Challenge, persona: models.Persona = None
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model="gemini-3-flash-preview",
+                model=model,
                 contents= prompt,
                 config={
                     "response_mime_type": "application/json",
@@ -437,7 +439,7 @@ def evaluate_challenge(
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model="gemini-3-flash-preview",
+                model=model,
                 contents=prompt,
                 config={
                     "response_mime_type": "application/json",

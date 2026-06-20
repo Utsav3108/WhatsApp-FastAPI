@@ -405,5 +405,48 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.exception.status_code, 400)
         self.assertIn("Selected persona for challenge cannot be a human user", context.exception.detail)
 
+    async def test_challenge_attempt_difficulty_logging(self):
+        # Create a challenge with difficulty = 'advance'
+        from app.models import ChallengeContext
+        challenge_adv = Challenge(
+            id="challenge_adv",
+            title="Challenge Advanced Difficulty",
+            difficulty="advance",
+            for_user=True,
+            created_at=datetime.now(timezone.utc)
+        )
+        self.db.add(challenge_adv)
+        await self.db.commit()
+        
+        # Start session
+        from app.services.challenge_session import setup_challenge_session
+        from app.schemas import ChallengeSetup
+        setup_req = ChallengeSetup(
+            challenge_id="challenge_adv",
+            persona_id=self.persona3.id,
+            user_id=self.user1.id
+        )
+        setup_res = await setup_challenge_session(self.db, setup_req)
+        
+        # Complete session
+        from app.services.challenge_session import complete_challenge_session
+        from app.schemas import ChallengeCompletion
+        completion_req = ChallengeCompletion(
+            challenge_session_id=setup_res.challenge_session_id,
+            challenge_status="won",
+            reason="Completed successfully",
+            user_id=self.user1.id,
+            challenge_id="challenge_adv"
+        )
+        await complete_challenge_session(self.db, completion_req)
+        
+        # Verify attempt log
+        from app.models import ChallengeAttempt
+        from sqlalchemy import select
+        stmt = select(ChallengeAttempt).filter(ChallengeAttempt.challenge_session_id == setup_res.challenge_session_id)
+        attempt = (await self.db.execute(stmt)).scalars().first()
+        self.assertIsNotNone(attempt)
+        self.assertEqual(attempt.difficulty, "advance")
+
 if __name__ == "__main__":
     unittest.main()

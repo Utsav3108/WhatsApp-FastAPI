@@ -216,6 +216,30 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
     formatted_traits, example_dialogues_prompt = format_persona_prompt(persona.name, persona.traits)
 
     if challenge:
+        difficulty_str = challenge.difficulty.value if hasattr(challenge.difficulty, "value") else str(challenge.difficulty or "beginner")
+        difficulty_instruction = ""
+        if difficulty_str == "beginner":
+            difficulty_instruction = """
+        - CHALLENGE DIFFICULTY LEVEL: BEGINNER (COOPERATIVE & LENIENT)
+          * Be cooperative, forgiving, and relatively easy to persuade.
+          * If the user makes a reasonable point, react positively and be willing to help or agree.
+          * Do not hold onto stubborn demands; let the user build their confidence.
+            """
+        elif difficulty_str == "intermediate":
+            difficulty_instruction = """
+        - CHALLENGE DIFFICULTY LEVEL: INTERMEDIATE (REALISTIC & BALANCE)
+          * Act realistically as the persona would in this scenario.
+          * Be balanced: not too easy to convince, but not overly stubborn.
+          * Require sound arguments and moderate persuasion before conceding to the user's goal.
+            """
+        elif difficulty_str == "advance":
+            difficulty_instruction = """
+        - CHALLENGE DIFFICULTY LEVEL: ADVANCED (SKEPTICAL & STUBBORN)
+          * Be highly skeptical, stubborn, and critical. You have high standards.
+          * Easily spot flaws in the user's reasoning or pitch, and point them out.
+          * Do not yield or concede unless the user makes an exceptionally persuasive, flawless, or creative case.
+            """
+
         system_instructions = f"""
         
         {fresh_start_directive}
@@ -230,6 +254,7 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
 
         # challenge CONTEXT
         - CURRENT SETTING: {challenge.context.setting if challenge.context else ''}
+        {difficulty_instruction}
 
         - YOUR CORE GOAL: {challenge.context.goal if not challenge.for_user and challenge.context else "Behave realistically according to your personality and react honestly to the user's actions."}
         - THE STAKES: {challenge.context.stakes if challenge and challenge.context else ''}
@@ -404,6 +429,27 @@ def evaluate_challenge(
 
     formatted_traits, _ = format_persona_prompt(persona.name, persona.traits)
 
+    difficulty_str = challenge.difficulty.value if hasattr(challenge.difficulty, "value") else str(challenge.difficulty or "beginner")
+    eval_difficulty_instruction = ""
+    if difficulty_str == "beginner":
+        eval_difficulty_instruction = """
+    - EVALUATION STANDARD: BEGINNER (LENIENT)
+      * Be lenient. If the user makes a decent attempt and the persona shows general agreement, willingness, or a positive response, mark as 'won_objective_completed'.
+      * Do not require flawless arguments or a perfect formal agreement.
+        """
+    elif difficulty_str == "intermediate":
+        eval_difficulty_instruction = """
+    - EVALUATION STANDARD: INTERMEDIATE (STANDARD)
+      * Be realistic. Ensure the user addressed the core goal reasonably and the persona explicitly agreed to or satisfied the objective.
+      * The agreement should feel earned, not overly easy or forced.
+        """
+    elif difficulty_str == "advance":
+        eval_difficulty_instruction = """
+    - EVALUATION STANDARD: ADVANCED (STRICT & CRITICAL)
+      * Be highly critical and strict. The user must display exceptional persuasion, clear arguments, or clever strategies, and the persona must have fully and clearly conceded or agreed without major reservations.
+      * If the user was mediocre, or did not fully meet the rigorous standard of the challenge, or if the persona still had major doubts/reservations, do not mark as won.
+        """
+
     # 3. Construct the evaluation prompt for Gemini
     prompt = f"""
     You are an objective game engine judge evaluating a roleplay challenge conversation. 
@@ -411,6 +457,7 @@ def evaluate_challenge(
 
     # CHALLENGE META DATA
     - Challenge Title: {challenge.title}
+    - Difficulty Level: {difficulty_str.upper()}
     - Persona Name: {persona.name}
     - Character Persona Traits: {formatted_traits}
     - Setting: {setting}
@@ -421,6 +468,7 @@ def evaluate_challenge(
     {conversation_log if conversation_log else "[No messages exchanged yet]"}
 
     # EVALUATION CRITERIA GUIDE
+    {eval_difficulty_instruction}
     - 'won_objective_completed': The conversation has reached a definitive conclusion where {persona.name} explicitly agreed to, conceded to, or satisfied the primary goal.
     - 'lost_rejected': {persona.name} has explicitly refused, hard-declined, or flat out rejected the user's objective, shutting down negotiation.
     - 'lost_blocked': The user severely insulted, harassed, or acted wildly out of character causing {persona.name} to break character, walk out, or block them in anger.

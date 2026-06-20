@@ -237,6 +237,14 @@ async def complete_challenge_session(db: AsyncSession, challenge_details = schem
     # Attempt number: count previous attempts
     attempt_number = await challenge_service.get_attempt_number(db, challenge_id, user_id) + 1 if challenge_id and user_id else 1
 
+    # Fetch challenge to get difficulty level
+    challenge_obj = await crud.get_challenge_by_id(db, challenge_id) if challenge_id else None
+    difficulty = None
+    if challenge_obj:
+        difficulty_val = challenge_obj.difficulty
+        if difficulty_val:
+            difficulty = difficulty_val.value if hasattr(difficulty_val, 'value') else str(difficulty_val)
+
     await create_challenge_attempt(
         db,
         challenge_id=challenge_id,
@@ -246,7 +254,8 @@ async def complete_challenge_session(db: AsyncSession, challenge_details = schem
         won=won,
         time_taken_seconds=time_taken_seconds,
         attempt_number=attempt_number,
-        challenge_session_id=challenge_details.challenge_session_id
+        challenge_session_id=challenge_details.challenge_session_id,
+        difficulty=difficulty
     )
 
     print(f"Challenge session completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")

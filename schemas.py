@@ -182,7 +182,7 @@ class ChallengeContextBase(BaseModel):
 class ChallengeDifficulty(str, Enum):
     beginner = "beginner"
     intermediate = "intermediate"
-    advance = "advanced"
+    advance = "advance"
 
 class ChallengeContextCreate(ChallengeContextBase):
     pass
@@ -297,6 +297,7 @@ class ChallengeAttemptResponse(BaseModel):
     won: bool
     time_taken_seconds: int | None = None
     attempt_number: int | None = None
+    difficulty: Optional[ChallengeDifficulty] = None
     created_at: datetime.datetime
     challenge_session_id: int
 

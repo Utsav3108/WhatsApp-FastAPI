@@ -22,8 +22,12 @@ file_path = os.path.join(BASE_DIR, "data.json")
 challenges_path = os.path.join(BASE_DIR, "challenge.json")
 
 async def init_models():
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
+        # Migration: Add difficulty column if it doesn't exist in challenge_attempts
+        if conn.dialect.name == "postgresql":
+            await conn.execute(text("ALTER TABLE challenge_attempts ADD COLUMN IF NOT EXISTS difficulty VARCHAR;"))
         
 @asynccontextmanager
 async def lifespan(app: FastAPI):

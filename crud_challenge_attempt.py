@@ -2,7 +2,7 @@ from app import models
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-async def create_challenge_attempt(db: AsyncSession, *, challenge_id: str, user_id: int, persona_id: int, role_mode: str, won: bool, time_taken_seconds: int, attempt_number: int, challenge_session_id: int = None):
+async def create_challenge_attempt(db: AsyncSession, *, challenge_id: str, user_id: int, persona_id: int, role_mode: str, won: bool, time_taken_seconds: int, attempt_number: int, challenge_session_id: int = None, difficulty: str = None):
     db_attempt = models.ChallengeAttempt(
         challenge_id=challenge_id,
         user_id=user_id,
@@ -11,7 +11,8 @@ async def create_challenge_attempt(db: AsyncSession, *, challenge_id: str, user_
         won=won,
         time_taken_seconds=time_taken_seconds,
         attempt_number=attempt_number,
-        challenge_session_id=challenge_session_id
+        challenge_session_id=challenge_session_id,
+        difficulty=difficulty
     )
     db.add(db_attempt)
     await db.commit()

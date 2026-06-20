@@ -81,6 +81,7 @@ class ChallengeAttempt(Base):
     won = Column(Boolean, nullable=False)
     time_taken_seconds = Column(Integer)
     attempt_number = Column(Integer)
+    difficulty = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
     # Relationships

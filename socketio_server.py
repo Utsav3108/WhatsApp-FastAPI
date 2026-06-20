@@ -198,9 +198,9 @@ async def handle_send_message(payload, db: AsyncSession, sid):
         from app.services import challenge_service
         challenge = await challenge_service.get_challenge_by_id(db, challenge_session.challenge_id)
         if challenge and challenge.estimated_duration_minutes:
-            from datetime import datetime
-            now = datetime.utcnow()
-            delta = (now - challenge_session.last_resumed_at.replace(tzinfo=None)).total_seconds() if challenge_session.last_resumed_at else 0
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            delta = (now - challenge_session.last_resumed_at).total_seconds() if challenge_session.last_resumed_at else 0
             total_elapsed = challenge_session.elapsed_seconds + delta
             if total_elapsed >= challenge.estimated_duration_minutes * 60:
                 print(f"Challenge session {challenge_session.id} has timed out. Completing as lost.")

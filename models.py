@@ -8,10 +8,25 @@ from datetime import datetime, timezone
 import enum
 
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.sql import func
+
+class CompatibleJSON(TypeDecorator):
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(JSONB)
+        return dialect.type_descriptor(JSON)
 
 class SafeJSON(TypeDecorator):
     impl = TEXT
     cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(JSONB)
+        return dialect.type_descriptor(TEXT)
 
     def process_bind_param(self, value, dialect):
         if value is None:
@@ -20,6 +35,18 @@ class SafeJSON(TypeDecorator):
             value = value.model_dump()
         elif hasattr(value, "dict"):
             value = value.dict()
+        
+        if isinstance(value, str):
+            v_stripped = value.strip()
+            if v_stripped.startswith('{') or v_stripped.startswith('['):
+                try:
+                    value = json.loads(v_stripped)
+                except Exception:
+                    pass
+
+        if dialect.name == 'postgresql':
+            return value
+
         if isinstance(value, (dict, list)):
             return json.dumps(value)
         return str(value)
@@ -27,6 +54,8 @@ class SafeJSON(TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is None:
             return None
+        if dialect.name == 'postgresql':
+            return value
         try:
             return json.loads(value)
         except (ValueError, TypeError):
@@ -44,15 +73,15 @@ class ChallengeAttempt(Base):
     __tablename__ = "challenge_attempts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    challenge_session_id = Column(Integer, ForeignKey("challenge_sessions.id"), nullable=False)
-    challenge_id = Column(String, ForeignKey("challenges.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("personas.id"), nullable=False)  # Now references Persona
-    persona_id = Column(Integer, ForeignKey("personas.id"), nullable=False)
+    challenge_session_id = Column(Integer, ForeignKey("challenge_sessions.id"), nullable=False, index=True)
+    challenge_id = Column(String, ForeignKey("challenges.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("personas.id"), nullable=False, index=True)  # Now references Persona
+    persona_id = Column(Integer, ForeignKey("personas.id"), nullable=False, index=True)
     role_mode = Column(String)
     won = Column(Boolean, nullable=False)
     time_taken_seconds = Column(Integer)
     attempt_number = Column(Integer)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
     # Relationships
     challenge_session = relationship("ChallengeSession", back_populates="attempts")
@@ -68,9 +97,9 @@ class Persona(Base):
     desc = Column(String)
     traits = Column(SafeJSON)
     image_url = Column(String, default="")
-    is_human = Column(Boolean, default=False, nullable=True)
+    is_human = Column(Boolean, nullable=False, server_default="false", default=False)
     category = Column(String, default="Custom Creator", nullable=True)
-    email = Column(String, nullable=True)
+    email = Column(String, nullable=True, index=True)
     role = Column(String, nullable=True)
     bio = Column(String, nullable=True)
     settings = Column(SafeJSON, nullable=True)
@@ -79,18 +108,19 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    sender_id = Column(Integer, ForeignKey("personas.id"))
-    receiver_id = Column(Integer, ForeignKey("personas.id"))
+    sender_id = Column(Integer, ForeignKey("personas.id"), index=True)
+    receiver_id = Column(Integer, ForeignKey("personas.id"), index=True)
     text = Column(String)
-    is_user = Column(Boolean)
-    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    is_user = Column(Boolean, nullable=False, server_default="false", default=False)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     image_object_name = Column(String, nullable=True)
 
     challenge_session_id = Column(
         Integer,
         ForeignKey("challenge_sessions.id"),
-        nullable=True
-)
+        nullable=True,
+        index=True
+    )
 
 
 
@@ -100,7 +130,7 @@ class ChallengeContext(Base):
     id = Column(Integer, primary_key=True, index=True)
     challenge_id = Column(String, ForeignKey("challenges.id"), unique=True)
     setting = Column(String)
-    environment = Column(JSON, nullable=True)  # Optional, JSON type
+    environment = Column(CompatibleJSON, nullable=True)  # Optional, JSON type
     goal = Column(String)
     stakes = Column(String)
     platform = Column(String)
@@ -125,19 +155,26 @@ class Challenge(Base):
     subtitle = Column(String, nullable=True)
     description = Column(String, nullable=True)
     short_description = Column(String, nullable=True)
-    categories = Column(JSON, nullable=True)
-    suggested_personas = Column(JSON, nullable=True)
-    difficulty = Column(Enum(ChallengeDifficulty), nullable=True)
-    difficulty_settings = Column(JSON, nullable=True)
+    categories = Column(CompatibleJSON, nullable=True)
+    suggested_personas = Column(CompatibleJSON, nullable=True)
+    difficulty = Column(
+        Enum(
+            ChallengeDifficulty,
+            name="challenge_difficulty"
+        ),
+        nullable=True
+    )
+    difficulty_settings = Column(CompatibleJSON, nullable=True)
     estimated_duration_minutes = Column(Integer, nullable=True)
-    challenge_rules = Column(JSON, nullable=True)
+    challenge_rules = Column(CompatibleJSON, nullable=True)
     image_url = Column(String, nullable=True)
-    for_user = Column(Boolean, nullable=True, default=True)
+    for_user = Column(Boolean, nullable=False, server_default="true", default=True)
+    first_message_from_persona = Column(Boolean, nullable=False, server_default="false", default=False)
     context = relationship("ChallengeContext", uselist=False, back_populates="challenge", cascade="all, delete-orphan")
 
-    selected_persona_id = Column(Integer, ForeignKey("personas.id"), nullable=True)  # New field for selected persona
+    selected_persona_id = Column(Integer, ForeignKey("personas.id"), nullable=True, index=True)  # New field for selected persona
     selected_persona = relationship("Persona", foreign_keys=[selected_persona_id])
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text
 from sqlalchemy.sql import func
@@ -154,19 +191,22 @@ class ChallengeSession(Base):
     user_id = Column(
         Integer,
         ForeignKey("personas.id"),
-        nullable=False
+        nullable=False,
+        index=True
     )
 
     challenge_id = Column(
         String,
         ForeignKey("challenges.id"),
-        nullable=False
+        nullable=False,
+        index=True
     )
 
     persona_id = Column(
         Integer,
         ForeignKey("personas.id"),
-        nullable=False
+        nullable=False,
+        index=True
     )
 
     status = Column(
@@ -207,3 +247,12 @@ class ChallengeSession(Base):
         "Persona",
         foreign_keys=[user_id]
     )
+
+class Category(Base):
+    __tablename__ = "categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    keywords = Column(CompatibleJSON, nullable=True)
+    icon = Column(String, nullable=True)
+    gradient_colors = Column(CompatibleJSON, nullable=True)

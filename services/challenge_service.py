@@ -1,13 +1,20 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from app import models, schemas, crud, crud_challenge_attempt
 
-async def get_all_challenges(db: AsyncSession, q: str | None = None, limit: int = 50, offset: int = 0) -> list[schemas.ChallengeResponse]:
-    results = await crud.get_all_challenges(db, q=q, limit=limit, offset=offset)
+async def get_all_challenges(db: AsyncSession, q: str | None = None, limit: int = 50, offset: int = 0, for_user_only: bool = True) -> list[schemas.ChallengeResponse]:
+    results = await crud.get_all_challenges(db, q=q, limit=limit, offset=offset, for_user_only=for_user_only)
     return [schemas.ChallengeResponse.model_validate(r) for r in results]
 
 async def get_challenge_by_id(db: AsyncSession, challenge_id: str) -> schemas.ChallengeResponse | None:
     result = await crud.get_challenge_by_id(db, challenge_id)
     return schemas.ChallengeResponse.model_validate(result) if result else None
+
+async def delete_challenge(db: AsyncSession, challenge_id: str) -> bool:
+    challenge = await crud.get_challenge_by_id(db, challenge_id)
+    if not challenge:
+        return False
+    await crud.delete_challenge(db, challenge_id)
+    return True
 
 async def create_or_update_challenge(db: AsyncSession, challenge_in: schemas.ChallengeCreate) -> schemas.ChallengeResponse:
     result = await crud.upsert_challenges(db, challenge_in)
@@ -52,7 +59,7 @@ async def get_challenges_dashboard(db: AsyncSession, current_user_id: int) -> sc
 
     trending = await crud.get_trending_challenges(db, current_user_id)
     recommended = await crud.get_recommended_challenges(db, user_id=current_user_id)
-    recently_added = await crud.get_recently_added_challenges(db)
+    recently_added = await crud.get_recently_added_challenges(db, user_id=current_user_id)
     
     return schemas.ChallengeDashboardResponse(
         daily_challenge=schemas.ChallengeResponse.model_validate(daily) if daily else None,

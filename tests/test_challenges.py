@@ -1,6 +1,6 @@
 import unittest
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from app.database import Base
 from app.models import Challenge, ChallengeAttempt, ChallengeSession, Persona
@@ -30,9 +30,9 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
 
     async def seed_data(self):
         # 2. Seed mock personas
-        self.user1 = Persona(id=1, name="User One", desc="", traits="Friendly", image_url="")
-        self.user2 = Persona(id=2, name="User Two", desc="", traits="Friendly", image_url="")
-        self.persona3 = Persona(id=3, name="Opponent Three", desc="", traits="Friendly", image_url="")
+        self.user1 = Persona(id=1, name="User One", desc="", traits="Friendly", image_url="", is_human=True)
+        self.user2 = Persona(id=2, name="User Two", desc="", traits="Friendly", image_url="", is_human=True)
+        self.persona3 = Persona(id=3, name="Opponent Three", desc="", traits="Friendly", image_url="", is_human=False)
         
         self.db.add_all([self.user1, self.user2, self.persona3])
         await self.db.flush()
@@ -43,28 +43,28 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
             id="challenge_a",
             title="Challenge A",
             for_user=True,
-            created_at=datetime.utcnow() - timedelta(hours=72)
+            created_at=datetime.now(timezone.utc) - timedelta(hours=72)
         )
-        # Challenge B: created 24 hours ago
+        # Challenge B: created 23 hours ago
         self.challenge_b = Challenge(
             id="challenge_b",
             title="Challenge B",
             for_user=True,
-            created_at=datetime.utcnow() - timedelta(hours=24)
+            created_at=datetime.now(timezone.utc) - timedelta(hours=23)
         )
         # Challenge C: created 12 hours ago
         self.challenge_c = Challenge(
             id="challenge_c",
             title="Challenge C",
             for_user=True,
-            created_at=datetime.utcnow() - timedelta(hours=12)
+            created_at=datetime.now(timezone.utc) - timedelta(hours=12)
         )
         # Challenge D: created 1 hour ago, but for_user = False (unpublished)
         self.challenge_d = Challenge(
             id="challenge_d",
             title="Challenge D",
             for_user=False,
-            created_at=datetime.utcnow() - timedelta(hours=1)
+            created_at=datetime.now(timezone.utc) - timedelta(hours=1)
         )
 
         self.db.add_all([self.challenge_a, self.challenge_b, self.challenge_c, self.challenge_d])
@@ -153,11 +153,33 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
         recently_added = await get_recently_added_challenges(self.db)
         recently_added_ids = [c.id for c in recently_added]
         
-        # Challenge B (created 24h ago) and Challenge C (created 12h ago) match the <48h window.
+        # Challenge B (created 23h ago) and Challenge C (created 12h ago) match the <24h window.
         # Challenge A (created 72h ago) is excluded.
         # Challenge D (for_user = False) is excluded.
         # Must be ordered newest first: Challenge C, then Challenge B.
         self.assertEqual(recently_added_ids, ["challenge_c", "challenge_b"])
+
+        # Create an attempt for user1 on challenge_b
+        from app.models import ChallengeAttempt
+        from app.enums import ChallengeResult
+        attempt = ChallengeAttempt(
+            challenge_session_id=1,
+            challenge_id="challenge_b",
+            user_id=self.user1.id,
+            persona_id=self.persona3.id,
+            won=True,
+            time_taken_seconds=30
+        )
+        self.db.add(attempt)
+        await self.db.flush()
+        await self.db.commit()
+
+        # Query recently added passing user1's id
+        recently_added_for_user = await get_recently_added_challenges(self.db, user_id=self.user1.id)
+        recently_added_user_ids = [c.id for c in recently_added_for_user]
+
+        # challenge_b should be excluded now because user1 has attempted it
+        self.assertEqual(recently_added_user_ids, ["challenge_c"])
 
     async def test_completed_daily_challenge_not_in_dashboard(self):
         from app.services.challenge_service import get_challenges_dashboard
@@ -205,12 +227,12 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(session.last_resumed_at)
         
         # Simulate elapsed time of 30 seconds
-        session.last_resumed_at = datetime.utcnow() - timedelta(seconds=30)
+        session.last_resumed_at = datetime.now(timezone.utc) - timedelta(seconds=30)
         await self.db.commit()
         
         # Simulate pause logic
-        now = datetime.utcnow()
-        delta = (now - session.last_resumed_at.replace(tzinfo=None)).total_seconds()
+        now = datetime.now(timezone.utc)
+        delta = (now - session.last_resumed_at).total_seconds()
         session.elapsed_seconds += int(delta)
         session.last_resumed_at = None
         await self.db.commit()
@@ -219,7 +241,7 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(session.last_resumed_at)
         
         # Resume the session again for a final 15-second segment
-        session.last_resumed_at = datetime.utcnow() - timedelta(seconds=15)
+        session.last_resumed_at = datetime.now(timezone.utc) - timedelta(seconds=15)
         session.status = 'active'
         await self.db.commit()
         
@@ -243,6 +265,145 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(attempt)
         self.assertGreaterEqual(attempt.time_taken_seconds, 44)
         self.assertLessEqual(attempt.time_taken_seconds, 48)
+
+    async def test_first_message_from_persona(self):
+        # 1. Create a challenge with first_message_from_persona = True
+        from app.models import ChallengeContext
+        challenge_e = Challenge(
+            id="challenge_e",
+            title="Challenge E",
+            for_user=True,
+            first_message_from_persona=True,
+            created_at=datetime.now(timezone.utc),
+            selected_persona_id=self.persona3.id
+        )
+        context_e = ChallengeContext(
+            challenge_id="challenge_e",
+            setting="A quiet trailer",
+            goal="Get the date",
+            platform="Chat",
+            stakes="None"
+        )
+        self.db.add(challenge_e)
+        self.db.add(context_e)
+        await self.db.flush()
+        await self.db.commit()
+
+        # 2. Mock ask_gemini call to avoid real API hit during tests
+        from unittest.mock import patch
+        from app.schemas import MessageCreate, ChallengeSetup
+
+        mock_msg = MessageCreate(
+            sender_id=self.persona3.id,
+            receiver_id=self.user1.id,
+            text="Hello user, welcome to my challenge!",
+            challenge_session_id=1
+        )
+
+        with patch("app.gemini.ask_gemini", return_value=mock_msg) as mock_ask:
+            req = ChallengeSetup(
+                challenge_id="challenge_e",
+                user_id=self.user1.id
+            )
+            from app.services.challenge_session import setup_challenge_session
+            resp = await setup_challenge_session(self.db, req)
+            
+            # Verify mock was called
+            mock_ask.assert_called_once()
+            
+            # Verify the response structure
+            self.assertIsNotNone(resp.challenge_session_id)
+            self.assertIsNotNone(resp.conversation_history)
+            self.assertEqual(len(resp.conversation_history), 1)
+            self.assertEqual(resp.conversation_history[0].text, "Hello user, welcome to my challenge!")
+            self.assertEqual(resp.conversation_history[0].sender_id, self.persona3.id)
+            self.assertEqual(resp.conversation_history[0].receiver_id, self.user1.id)
+
+    async def test_personas_filtering_non_human_only(self):
+        from app.crud import get_all_personas, search_personas
+        
+        # get_all_personas should only return non-human personas (persona3)
+        all_personas = await get_all_personas(self.db)
+        persona_ids = [p.id for p in all_personas]
+        self.assertIn(self.persona3.id, persona_ids)
+        self.assertNotIn(self.user1.id, persona_ids)
+        self.assertNotIn(self.user2.id, persona_ids)
+
+        # search_personas should only return non-human personas
+        searched = await search_personas(self.db, query="User")
+        self.assertEqual(len(searched), 0)
+
+        searched_opponent = await search_personas(self.db, query="Opponent")
+        self.assertEqual(len(searched_opponent), 1)
+        self.assertEqual(searched_opponent[0].id, self.persona3.id)
+
+    async def test_upsert_challenges_validation(self):
+        from app.crud import upsert_challenges
+        from app.schemas import ChallengeCreate, ChallengeContextCreate
+        
+        ctx = ChallengeContextCreate(
+            setting="trailer",
+            goal="get date",
+            stakes="none",
+            platform="chat"
+        )
+        
+        # Test validation for selected_persona_id
+        challenge_invalid_selected = ChallengeCreate(
+            id="challenge_invalid_selected",
+            title="Invalid Selected",
+            context=ctx,
+            selected_persona_id=self.user1.id  # human user
+        )
+        with self.assertRaises(ValueError) as context:
+            await upsert_challenges(self.db, challenge_invalid_selected)
+        self.assertIn("Selected persona for challenge cannot be a human user", str(context.exception))
+
+        # Test validation for suggested_personas
+        challenge_invalid_suggested = ChallengeCreate(
+            id="challenge_invalid_suggested",
+            title="Invalid Suggested",
+            context=ctx,
+            suggested_personas=[self.persona3.id, self.user2.id]  # user2 is human
+        )
+        with self.assertRaises(ValueError) as context:
+            await upsert_challenges(self.db, challenge_invalid_suggested)
+        self.assertIn("Suggested personas for challenge cannot include human users", str(context.exception))
+
+        # Test success case
+        challenge_valid = ChallengeCreate(
+            id="challenge_valid",
+            title="Valid Challenge",
+            context=ctx,
+            selected_persona_id=self.persona3.id,
+            suggested_personas=[self.persona3.id]
+        )
+        res = await upsert_challenges(self.db, challenge_valid)
+        self.assertIsNotNone(res)
+
+    async def test_create_challenge_api_validation(self):
+        from app.routers.challenge import create_challenge
+        from app.schemas import ChallengeCreate, ChallengeContextCreate
+        from fastapi import HTTPException
+
+        ctx = ChallengeContextCreate(
+            setting="trailer",
+            goal="get date",
+            stakes="none",
+            platform="chat"
+        )
+
+        # Test router catches ValueError and raises HTTPException(400)
+        challenge_invalid = ChallengeCreate(
+            id="challenge_invalid_api",
+            title="Invalid API Challenge",
+            context=ctx,
+            selected_persona_id=self.user1.id  # human user
+        )
+        with self.assertRaises(HTTPException) as context:
+            await create_challenge(challenge_invalid, self.db)
+        self.assertEqual(context.exception.status_code, 400)
+        self.assertIn("Selected persona for challenge cannot be a human user", context.exception.detail)
 
 if __name__ == "__main__":
     unittest.main()

@@ -99,12 +99,54 @@ async def setup_challenge_session(
         intro=storyline
     )
 
+    conversation_history = None
+
+    if challenge.first_message_from_persona:
+        from app.gemini import ask_gemini
+        
+        # Ensure persona is schemas.PersonaResponse
+        if not isinstance(persona, schemas.PersonaResponse):
+            persona_validated = schemas.PersonaResponse.model_validate(persona)
+        else:
+            persona_validated = persona
+
+        try:
+            user_persona = await crud.get_persona_by_id(db, request.user_id)
+            user_name = user_persona.name if user_persona else "User"
+            user_role = user_persona.role if user_persona else None
+            user_bio = user_persona.bio if user_persona else None
+        except Exception:
+            user_name = "User"
+            user_role = None
+            user_bio = None
+
+        attempt = await challenge_service.get_attempt_number(db, challenge.id, request.user_id)
+
+        opening_prompt = "Initiate the conversation as your persona. Send a message to start the interaction."
+        
+        gemini_response_in = ask_gemini(
+            question=opening_prompt,
+            persona=persona_validated,
+            user_name=user_name,
+            user_role=user_role,
+            user_bio=user_bio,
+            senderId=request.user_id,
+            past_messages=[],
+            challenge=challenge,
+            challenge_session_id=session.id,
+            attempt=attempt
+        )
+
+        saved_msg = await crud.create_message(db, gemini_response_in)
+        conversation_history = [schemas.MessageResponse.model_validate(saved_msg)]
+
     return schemas.ChallengeSetupResponse(
         message=f"Challenge '{challenge.title}' started successfully.",
         challenge_session_id=session.id,
         intro=storyline,
         status=session.status,
         total_duration_minutes=challenge.estimated_duration_minutes,
+        conversation_history=conversation_history,
         elapsed_seconds=session.elapsed_seconds
     )
 
@@ -116,9 +158,9 @@ async def _build_existing_session_response(
     message: str
 ) -> schemas.ChallengeSetupResponse:
 
-    from datetime import datetime
+    from datetime import datetime, timezone
     if session.status == 'active':
-        session.last_resumed_at = datetime.utcnow()
+        session.last_resumed_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(session)
 

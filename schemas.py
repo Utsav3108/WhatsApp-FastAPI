@@ -213,6 +213,7 @@ class ChallengeBase(BaseModel):
     image_url: Optional[str] = None
 
     for_user: bool = True # New field to indicate if the challenge is for users or for personas
+    first_message_from_persona: bool = False
     selected_persona_id: Optional[int] = None  # New field for selected persona ID
     created_at: Optional[datetime.datetime] = None
 
@@ -317,3 +318,18 @@ class ChallengeDashboardResponse(BaseModel):
     trending_challenges: List[ChallengeResponse]
     recommended_challenges: List[ChallengeResponse]
     recently_added_challenges: List[ChallengeResponse]
+
+class CategoryBase(BaseModel):
+    name: str
+    keywords: Optional[List[str]] = None
+    icon: Optional[str] = None
+    gradient_colors: Optional[List[str]] = None
+
+class CategoryCreate(CategoryBase):
+    pass
+
+class CategoryResponse(CategoryBase):
+    id: int
+
+    class Config:
+        from_attributes = True

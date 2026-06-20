@@ -278,7 +278,7 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
             
         """
 
-    # print("System Instructions for Gemini:", system_instructions)
+    print("System Instructions for Gemini:", system_instructions)
     chat = client.chats.create(
         model=model, 
         config={"system_instruction": system_instructions},

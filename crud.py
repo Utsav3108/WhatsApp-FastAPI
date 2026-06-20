@@ -1,6 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
-from sqlalchemy import select, and_, or_, func, desc
+from sqlalchemy import select, and_, or_, func, desc, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app import models, schemas
@@ -52,7 +52,10 @@ async def get_messages_by_challenge_session_id(db: AsyncSession, challenge_sessi
 async def search_personas(db: AsyncSession, query: str, limit: int = 50, offset: int = 0):
     result = await db.execute(
         select(models.Persona)
-        .filter(models.Persona.name.ilike(f"%{query}%"))
+        .filter(
+            models.Persona.is_human == False,
+            models.Persona.name.ilike(f"%{query}%")
+        )
         .limit(limit)
         .offset(offset)
     )
@@ -72,7 +75,10 @@ async def get_persona_by_name(db: AsyncSession, name: str):
 
 async def get_all_personas(db: AsyncSession, limit: int = 50, offset: int = 0):
     result = await db.execute(
-        select(models.Persona).offset(offset).limit(limit)
+        select(models.Persona)
+        .filter(models.Persona.is_human == False)
+        .offset(offset)
+        .limit(limit)
     )
     return result.scalars().all()
 
@@ -166,14 +172,14 @@ async def update_user_profile(db: AsyncSession, user_id: int, profile_in: schema
 # Challenge CRUD
 # --------------------------------------------------------------------------
 
-async def get_all_challenges(db: AsyncSession, q: str | None = None, limit: int = 50, offset: int = 0):
-    stmt = (
-        select(Challenge).options(
-            selectinload(Challenge.context),
-            selectinload(Challenge.selected_persona)
-        )
-        .filter(Challenge.for_user == True)
+async def get_all_challenges(db: AsyncSession, q: str | None = None, limit: int = 50, offset: int = 0, for_user_only: bool = True):
+    stmt = select(Challenge).options(
+        selectinload(Challenge.context),
+        selectinload(Challenge.selected_persona)
     )
+    if for_user_only:
+        stmt = stmt.filter(Challenge.for_user == True)
+        
     if q:
         q_filter = f"%{q}%"
         stmt = stmt.filter(
@@ -184,6 +190,42 @@ async def get_all_challenges(db: AsyncSession, q: str | None = None, limit: int 
     stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
     return result.scalars().all()
+
+async def delete_challenge(db: AsyncSession, challenge_id: str):
+    # 1. Get all session IDs for this challenge
+    sessions_stmt = select(ChallengeSession.id).filter(ChallengeSession.challenge_id == challenge_id)
+    res = await db.execute(sessions_stmt)
+    session_ids = res.scalars().all()
+    
+    if session_ids:
+        # Delete messages associated with these sessions
+        await db.execute(
+            delete(Message).filter(Message.challenge_session_id.in_(session_ids))
+        )
+        # Delete attempts associated with these sessions
+        await db.execute(
+            delete(ChallengeAttempt).filter(ChallengeAttempt.challenge_session_id.in_(session_ids))
+        )
+        # Delete sessions
+        await db.execute(
+            delete(ChallengeSession).filter(ChallengeSession.id.in_(session_ids))
+        )
+        
+    # Delete attempts that might have challenge_id but no session
+    await db.execute(
+        delete(ChallengeAttempt).filter(ChallengeAttempt.challenge_id == challenge_id)
+    )
+    
+    # Delete context
+    await db.execute(
+        delete(ChallengeContext).filter(ChallengeContext.challenge_id == challenge_id)
+    )
+    
+    # Delete challenge
+    await db.execute(
+        delete(Challenge).filter(Challenge.id == challenge_id)
+    )
+    await db.commit()
 
 async def get_challenge_by_id(db: AsyncSession, challenge_id: str):
     result = await db.execute(
@@ -228,7 +270,8 @@ def _create_challenge_model(challenge: schemas.ChallengeCreate) -> Challenge:
         estimated_duration_minutes=challenge.estimated_duration_minutes,
         challenge_rules=challenge.challenge_rules,
         selected_persona_id=challenge.selected_persona_id,
-        created_at=challenge.created_at if getattr(challenge, 'created_at', None) is not None else datetime.now()
+        first_message_from_persona=challenge.first_message_from_persona,
+        created_at=challenge.created_at if getattr(challenge, 'created_at', None) is not None else datetime.now(timezone.utc)
     )
 
 async def update_challenge(db: AsyncSession, challenge: Challenge):
@@ -237,12 +280,26 @@ async def update_challenge(db: AsyncSession, challenge: Challenge):
     return await get_challenge_by_id(db, merged_challenge.id)
 
 async def upsert_challenges(db: AsyncSession, challenge: schemas.ChallengeCreate):
+    # Validation: selected_persona_id must be a non-human persona
+    if challenge.selected_persona_id is not None:
+        persona = await get_persona_by_id(db, challenge.selected_persona_id)
+        if persona and persona.is_human:
+            raise ValueError("Selected persona for challenge cannot be a human user.")
+            
+    # Validation: suggested_personas must be non-human personas
+    if challenge.suggested_personas:
+        for p_id in challenge.suggested_personas:
+            persona = await get_persona_by_id(db, p_id)
+            if persona and persona.is_human:
+                raise ValueError("Suggested personas for challenge cannot include human users.")
+
     context_data = challenge.context.model_dump() if challenge.context else None
 
     challenge_fields = [
         "image_url", "title", "subtitle", "description", "short_description",
         "categories", "suggested_personas", "selected_persona_id", "difficulty",
-        "difficulty_settings", "estimated_duration_minutes", "challenge_rules"
+        "difficulty_settings", "estimated_duration_minutes", "challenge_rules",
+        "first_message_from_persona"
     ]
 
     context_fields = ["setting", "environment", "goal", "stakes", "platform"]
@@ -309,7 +366,7 @@ async def get_daily_challenge(db: AsyncSession) -> Challenge | None:
         return None
         
     sorted_challenges = sorted(challenges, key=lambda c: c.id)
-    today_str = datetime.utcnow().date().isoformat()
+    today_str = datetime.now(timezone.utc).date().isoformat()
     hash_val = int(hashlib.md5(today_str.encode('utf-8')).hexdigest(), 16)
     index = hash_val % len(sorted_challenges)
     return sorted_challenges[index]
@@ -392,8 +449,8 @@ async def get_recommended_challenges(db: AsyncSession, user_id: int | None = Non
     res = await db.execute(stmt)
     return list(res.scalars().all())
 
-async def get_recently_added_challenges(db: AsyncSession) -> list[Challenge]:
-    cutoff_time = datetime.now() - timedelta(hours=48)
+async def get_recently_added_challenges(db: AsyncSession, user_id: int | None = None) -> list[Challenge]:
+    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=24)
     stmt = (
         select(Challenge)
         .options(
@@ -405,8 +462,18 @@ async def get_recently_added_challenges(db: AsyncSession) -> list[Challenge]:
             Challenge.created_at.isnot(None),
             Challenge.created_at >= cutoff_time
         )
-        .order_by(desc(Challenge.created_at))
     )
+    if user_id is not None:
+        attempts_res = await db.execute(
+            select(ChallengeAttempt.challenge_id).filter(
+                ChallengeAttempt.user_id == user_id
+            )
+        )
+        attempted_ids = [r[0] for r in attempts_res.all()]
+        if attempted_ids:
+            stmt = stmt.filter(Challenge.id.not_in(attempted_ids))
+
+    stmt = stmt.order_by(desc(Challenge.created_at))
     res = await db.execute(stmt)
     return list(res.scalars().all())
 
@@ -432,14 +499,14 @@ async def get_existing_session(db: AsyncSession, user_id: int, challenge_id: str
     return result.scalars().first()
 
 async def create_challenge_session(db: AsyncSession, user_id: int, challenge_id: str, persona_id: int, intro: schemas.StorylineResponse):
-    from datetime import datetime
+    from datetime import datetime, timezone
     session = ChallengeSession(
         user_id=user_id,
         challenge_id=challenge_id,
         persona_id=persona_id,
         storyline=intro.storyline,
         call_to_action=intro.call_to_action,
-        last_resumed_at=datetime.utcnow()
+        last_resumed_at=datetime.now(timezone.utc)
     )
     db.add(session)
     await db.commit()
@@ -447,9 +514,10 @@ async def create_challenge_session(db: AsyncSession, user_id: int, challenge_id:
     return session
 
 async def complete_session(db: AsyncSession, session: ChallengeSession, status: str, reason: str):
+    from datetime import datetime, timezone
     session.status = status
     session.result_reason = reason
-    session.completed_at = datetime.utcnow()
+    session.completed_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(session)
     return session
@@ -462,3 +530,44 @@ async def get_attempts(db: AsyncSession, user_id: int, challenge_id: str):
         )
     )
     return result.scalars().all()
+
+async def get_all_categories(db: AsyncSession):
+    result = await db.execute(select(models.Category).order_by(models.Category.name))
+    return result.scalars().all()
+
+async def get_category_by_id(db: AsyncSession, category_id: int):
+    result = await db.execute(select(models.Category).filter(models.Category.id == category_id))
+    return result.scalars().first()
+
+async def get_category_by_name(db: AsyncSession, name: str):
+    result = await db.execute(select(models.Category).filter(models.Category.name == name))
+    return result.scalars().first()
+
+async def create_category(db: AsyncSession, category: schemas.CategoryCreate):
+    db_category = models.Category(
+        name=category.name,
+        keywords=category.keywords,
+        icon=category.icon,
+        gradient_colors=category.gradient_colors
+    )
+    db.add(db_category)
+    await db.commit()
+    await db.refresh(db_category)
+    return db_category
+
+async def delete_category(db: AsyncSession, category_id: int):
+    db_category = await get_category_by_id(db, category_id)
+    if db_category:
+        await db.delete(db_category)
+        await db.commit()
+        return True
+    return False
+
+async def update_category(db: AsyncSession, db_category: models.Category, category_in: schemas.CategoryCreate):
+    db_category.name = category_in.name
+    db_category.keywords = category_in.keywords
+    db_category.icon = category_in.icon
+    db_category.gradient_colors = category_in.gradient_colors
+    await db.commit()
+    await db.refresh(db_category)
+    return db_category

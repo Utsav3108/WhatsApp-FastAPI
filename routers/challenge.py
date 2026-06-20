@@ -15,15 +15,26 @@ async def get_all_challenges(
     q: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    for_user_only: bool = True,
     db: AsyncSession = Depends(get_db)
 ):
-    challenges = await challenge_service.get_all_challenges(db, q=q, limit=limit, offset=offset)
+    challenges = await challenge_service.get_all_challenges(db, q=q, limit=limit, offset=offset, for_user_only=for_user_only)
     return challenges
 
 @router.post("/challenges", response_model=schemas.ChallengeResponse)
 async def create_challenge(challenge_in: schemas.ChallengeCreate, db: AsyncSession = Depends(get_db)):
-    challenge = await challenge_service.create_or_update_challenge(db, challenge_in)
-    return challenge
+    try:
+        challenge = await challenge_service.create_or_update_challenge(db, challenge_in)
+        return challenge
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+@router.delete("/challenges/{challenge_id}")
+async def delete_challenge(challenge_id: str, db: AsyncSession = Depends(get_db)):
+    success = await challenge_service.delete_challenge(db, challenge_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    return {"status": "success", "message": f"Challenge {challenge_id} deleted successfully"}
 
 @router.post("/setup_challenge", response_model=schemas.ChallengeSetupResponse)
 async def setup_challenge(
@@ -103,7 +114,7 @@ async def pause_challenge_session(
     db: AsyncSession = Depends(get_db),
     current_user: models.Persona = Depends(get_current_user)
 ):
-    from datetime import datetime
+    from datetime import datetime, timezone
     session = await crud.get_challenge_session_by_id(db, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Challenge session not found")
@@ -111,8 +122,8 @@ async def pause_challenge_session(
         raise HTTPException(status_code=403, detail="Forbidden")
     
     if session.status == 'active' and session.last_resumed_at:
-        now = datetime.utcnow()
-        delta = (now - session.last_resumed_at.replace(tzinfo=None)).total_seconds()
+        now = datetime.now(timezone.utc)
+        delta = (now - session.last_resumed_at).total_seconds()
         session.elapsed_seconds += int(delta)
         session.last_resumed_at = None
         await db.commit()

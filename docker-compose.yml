@@ -1,0 +1,40 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    container_name: whatsapp_app
+    volumes:
+      - app_data:/usr/src/app/app/data
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  redis:
+    image: redis/redis-stack:latest
+    container_name: whatsapp_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    container_name: whatsapp_postgres
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  app_data:
+  redis_data:
+  postgres_data:

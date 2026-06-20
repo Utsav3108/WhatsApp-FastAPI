@@ -10,7 +10,7 @@ POSTGRES_DB = dotenv.get_key(dotenv.find_dotenv(), "POSTGRES_DB")
 POSTGRES_PORT = dotenv.get_key(dotenv.find_dotenv(), "POSTGRES_PORT")
 
 # DATABASE_URL = f"postgresql+asyncpg://:{POSTGRES_PASSWORD}@localhost:{POSTGRES_DB}"
-DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{POSTGRES_PORT}/{POSTGRES_DB}"
+DATABASE_URL = dotenv.get_key(dotenv.find_dotenv(), "POSTGRES_URL")
 print("DATABASE_URL:", DATABASE_URL)  # Debugging line to check the constructed URL
 
 engine = create_async_engine(

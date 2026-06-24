@@ -229,51 +229,19 @@ async def handle_send_message(payload, db: AsyncSession, sid):
         past_messages = await message_service.get_message_by_session_id(db, challenge_session.id)
 
     else:
-        # Load cached or DB message history
-        key = cache.create_cache_message_key(
+        # Load DB message history directly
+        db_msgs = await crud.get_messages_between_users(
+            db,
             message.sender_id,
             message.receiver_id
         )
-
-        cached_response = cache.retrieve_cache(key)
-
-        if cached_response:
-            past_messages = [
-                schemas.MessageResponse.model_validate(m)
-                for m in cached_response
-            ]
-        else:
-            db_msgs = await crud.get_messages_between_users(
-                db,
-                message.sender_id,
-                message.receiver_id
-            )
-            past_messages = [
-                schemas.MessageResponse.model_validate(m)
-                for m in db_msgs
-            ]
+        past_messages = [
+            schemas.MessageResponse.model_validate(m)
+            for m in db_msgs
+        ]
 
         # Add latest user message
         past_messages.append(message)
-
-        # Update cache for messages
-        cache.store_cache(
-            key,
-            [m.model_dump() for m in past_messages]
-        )
-
-        # --- Update personas chatted cache if needed ---
-        personas_chat_key = cache.create_personas_chat_key(message.sender_id)
-        personas_chatted = cache.retrieve_cache(personas_chat_key)
-        if personas_chatted is not None:
-            if not any(p.get('id') == message.receiver_id for p in personas_chatted):
-                persona_res = await db.execute(select(crud.models.Persona).filter(crud.models.Persona.id == message.receiver_id))
-                persona = persona_res.scalars().first()
-                if persona:
-                    from app.schemas import PersonaResponse
-                    persona_data = PersonaResponse.model_validate(persona).model_dump()
-                    personas_chatted.append(persona_data)
-                    cache.store_cache(personas_chat_key, personas_chatted)
 
     if challenge_session:
         asyncio.create_task(
@@ -379,17 +347,6 @@ async def handle_gemini_response(message : schemas.MessageCreate, past_messages,
 
             else:
                 print(f"Gemini response {gemini_message.text}")
-
-                # Update cache
-                key = cache.create_cache_message_key(
-                    message.sender_id,
-                    message.receiver_id
-                )
-
-                cache.store_cache(
-                    key,
-                    [m.model_dump() for m in past_messages]
-                )
 
         except Exception as e:
             await db.rollback()

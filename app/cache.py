@@ -1,6 +1,6 @@
 import json
 import redis
-from typing import Optional
+from typing import Optional, Any
 import dotenv
 
 dotenv.load_dotenv()
@@ -23,7 +23,7 @@ DEFAULT_EXPIRY_SECONDS = 300
 
 def store_cache(
     key: str,
-    value: dict,
+    value: Any,
     expire_seconds: int = DEFAULT_EXPIRY_SECONDS
 ):
     """
@@ -38,7 +38,7 @@ def store_cache(
     )
 
 
-def retrieve_cache(key: str) -> Optional[dict]:
+def retrieve_cache(key: str) -> Optional[Any]:
     """
     Retrieves a value from Redis.
     Returns None if not found.
@@ -55,44 +55,27 @@ def retrieve_cache(key: str) -> Optional[dict]:
         return None
 
 
+def invalidate_cache(key: str):
+    """
+    Evicts a value from Redis.
+    """
+    try:
+        redis_client.delete(key)
+    except Exception as e:
+        print(f"Error invalidating cache key {key}: {e}")
+
+
 # =============== Utility functions to create cache keys ===============
 
-def create_cache_message_key(
-    user1_id: int,
-    user2_id: int
-) -> str:
+def create_persona_key(persona_id: int) -> str:
     """
-    Creates a cache key for storing messages between two users.
-    The key is deterministic regardless of user order.
+    Creates a cache key for storing a specific persona's details.
     """
-
-    smaller_id, larger_id = sorted(
-        [user1_id, user2_id]
-    )
-
-    return (
-        f"conversation_"
-        f"{smaller_id}_"
-        f"{larger_id}"
-    )
+    return f"persona_{persona_id}"
 
 
-def create_personas_chat_key(
-    user_id: int
-) -> str:
+def create_challenge_key(challenge_id: str) -> str:
     """
-    Creates a cache key for storing the list
-    of personas a user has chatted with.
+    Creates a cache key for storing a specific challenge's configuration.
     """
-
-    return f"personas_chat_user_{user_id}"
-
-
-def create_persona_search_key(
-    query: str
-) -> str:
-    """
-    Creates a cache key for persona search results.
-    """
-
-    return f"persona_search_{query.lower()}"
+    return f"challenge_{challenge_id}"

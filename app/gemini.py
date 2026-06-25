@@ -193,7 +193,7 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
 
 def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
-    past_messages = past_messages[-10:-1]  # Limit to last 10 messages for context
+    past_messages = past_messages[-10:]  # Limit to last 10 historical messages
     
     # Example of mapping your DB rows to the Gemini format
     formatted_history = []
@@ -303,7 +303,7 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
             
         """
 
-    print("System Instructions for Gemini:", system_instructions)
+    # print("System Instructions for Gemini:", system_instructions)
     chat = client.chats.create(
         model=model, 
         config={"system_instruction": system_instructions},
@@ -367,7 +367,7 @@ def create_storyline(challenge: models.Challenge, persona: models.Persona = None
     2. Prevent user overwhelm by explicitly clarifying the very first move they should make.
     """
 
-    print("Generated prompt for Gemini:", prompt)
+    #print("Generated prompt for Gemini:", prompt)
 
 
     # Call Gemini with Structured Output configuration
@@ -391,17 +391,17 @@ def create_storyline(challenge: models.Challenge, persona: models.Persona = None
         except ServerError as e:
             # 503 Service Unavailable / 429 Too Many Requests
             if attempt == max_retries - 1:
-                print(f"Gemini ServerError after {max_retries} attempts: {e}")
+              # print(f"Gemini ServerError after {max_retries} attempts: {e}")
                 raise e # Re-raise if all retries failed
             
             # Wait longer with each failure (Exponential Backoff)
             delay = base_delay * (2 ** attempt) 
-            print(f"Gemini busy (503). Retrying in {delay} seconds (Attempt {attempt + 1}/{max_retries})...")
+          # print(f"Gemini busy (503). Retrying in {delay} seconds (Attempt {attempt + 1}/{max_retries})...")
             time.sleep(delay)
 
         except APIError as e:
             # Catch other general Google API issues (like 400 Bad Request, 403 Forbidden)
-            print(f"Gemini API Error: {e}")
+          # print(f"Gemini API Error: {e}")
             raise e
 
     # The SDK automatically parses the JSON text into your Pydantic object
@@ -478,7 +478,7 @@ def evaluate_challenge(
     Return a structured JSON mapping perfectly to the provided schema detailing the status and reasoning.
     """
 
-    print("Sending conversation to Gemini for evaluation...")
+    # print("Sending conversation to Gemini for evaluation...")
 
     # 4. Structured Output API execution with Exponential Backoff Retries
     max_retries = 3
@@ -499,13 +499,13 @@ def evaluate_challenge(
 
         except ServerError as e:
             if attempt == max_retries - 1:
-                print(f"Gemini Evaluation ServerError after {max_retries} attempts: {e}")
+              # print(f"Gemini Evaluation ServerError after {max_retries} attempts: {e}")
                 raise e
             
             delay = base_delay * (2 ** attempt) 
-            print(f"Gemini busy (503). Retrying evaluation in {delay} seconds (Attempt {attempt + 1}/{max_retries})...")
+          # print(f"Gemini busy (503). Retrying evaluation in {delay} seconds (Attempt {attempt + 1}/{max_retries})...")
             time.sleep(delay)
 
         except APIError as e:
-            print(f"Gemini Evaluation API Error: {e}")
+          # print(f"Gemini Evaluation API Error: {e}")
             raise e

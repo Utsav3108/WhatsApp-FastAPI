@@ -22,7 +22,7 @@ challenge_completed = False
 @sio.event
 async def connect():
 
-    print("Connected to server")
+  # print("Connected to server")
 
     # Associate socket with user
     await sio.emit(
@@ -40,7 +40,7 @@ async def connect():
         }
     )
 
-    print(f"Joined challenge session {CHALLENGE_SESSION_ID}")
+  # print(f"Joined challenge session {CHALLENGE_SESSION_ID}")
 
     # Request session sync
     await sio.emit(
@@ -66,7 +66,7 @@ async def connect():
 @sio.event
 async def disconnect():
 
-    print("Disconnected from server")
+  # print("Disconnected from server")
 
 
 # -------------------------------------------------------------------
@@ -76,28 +76,28 @@ async def disconnect():
 @sio.on('receive_message')
 async def on_receive_message(data):
 
-    print("\n=== RECEIVE MESSAGE ===")
-    print(data)
+  # print("\n=== RECEIVE MESSAGE ===")
+  # print(data)
 
 
 @sio.on('typing')
 async def on_typing(data):
 
-    print("\n=== TYPING EVENT ===")
-    print(data)
+  # print("\n=== TYPING EVENT ===")
+  # print(data)
 
 
 @sio.on('session_sync')
 async def on_session_sync(data):
 
-    print("\n=== SESSION SYNC ===")
-    print(data)
+  # print("\n=== SESSION SYNC ===")
+  # print(data)
 
     remaining_seconds = data.get("remaining_seconds")
     status = data.get("status")
 
-    print(f"Remaining Seconds: {remaining_seconds}")
-    print(f"Status: {status}")
+  # print(f"Remaining Seconds: {remaining_seconds}")
+  # print(f"Status: {status}")
 
 
 @sio.on('challenge_completed')
@@ -107,12 +107,12 @@ async def on_challenge_completed(data):
 
     challenge_completed = True
 
-    print("\n=== CHALLENGE COMPLETED ===")
-    print(data)
+  # print("\n=== CHALLENGE COMPLETED ===")
+  # print(data)
 
     status = data.get("status")
 
-    print(f"Challenge Result: {status}")
+  # print(f"Challenge Result: {status}")
 
     # Optional disconnect after completion
     await asyncio.sleep(2)
@@ -123,8 +123,8 @@ async def on_challenge_completed(data):
 @sio.on('error')
 async def on_error(data):
 
-    print("\n=== ERROR ===")
-    print(data)
+  # print("\n=== ERROR ===")
+  # print(data)
 
 
 # -------------------------------------------------------------------
@@ -150,7 +150,7 @@ async def send_test_messages():
             'challenge_id': CHALLENGE_ID
         }
 
-        print(f"\nSending: {text}")
+      # print(f"\nSending: {text}")
 
         await sio.emit('send_message', payload)
 
@@ -175,7 +175,7 @@ async def heartbeat():
             }
         )
 
-        print("Ping sent")
+      # print("Ping sent")
 
         await asyncio.sleep(20)
 
@@ -188,7 +188,7 @@ async def auto_complete_challenge():
 
     global challenge_completed
 
-    print(
+  # print(
         f"\nChallenge timer started "
         f"({CHALLENGE_DURATION_SECONDS} seconds)"
     )
@@ -198,7 +198,7 @@ async def auto_complete_challenge():
     if challenge_completed:
         return
 
-    print("\nEmitting complete_challenge event")
+  # print("\nEmitting complete_challenge event")
 
     payload = {
         'challenge_session_id': CHALLENGE_SESSION_ID,

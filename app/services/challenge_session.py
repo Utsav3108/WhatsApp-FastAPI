@@ -9,7 +9,7 @@ async def setup_challenge_session(
     request: schemas.ChallengeSetup
 ) -> schemas.ChallengeSetupResponse:
 
-    print(f"Setting up challenge session with request: {request}")
+  # print(f"Setting up challenge session with request: {request}")
 
     if not request.challenge_id:
         raise ValueError("challenge_id is required to start a challenge.")
@@ -74,7 +74,7 @@ async def setup_challenge_session(
             end_goal=challenge.context.goal if challenge.context else None
         )
     else:
-        print("Creating new storyline for challenge.")
+      # print("Creating new storyline for challenge.")
 
         storyline = create_storyline(challenge, persona)
         if storyline and challenge.context and not getattr(storyline, 'end_goal', None):
@@ -166,7 +166,8 @@ async def _build_existing_session_response(
 
     conversation_history = await message_service.get_message_by_session_id(
         db,
-        session.id
+        session.id,
+        limit=None
     )
 
     intro = None
@@ -193,7 +194,7 @@ async def complete_challenge_session(db: AsyncSession, challenge_details = schem
     # Check if the session is already completed to avoid duplicate completion attempts
     session = await crud.get_challenge_session_by_id(db, challenge_details.challenge_session_id)
     if session and session.status != 'active':
-        print(f"Challenge session {challenge_details.challenge_session_id} is already completed with status: {session.status}")
+      # print(f"Challenge session {challenge_details.challenge_session_id} is already completed with status: {session.status}")
         return schemas.ChallengeCompletionResponse(
             message="Challenge session already completed.",
             challenge_status=session.status,
@@ -231,7 +232,7 @@ async def complete_challenge_session(db: AsyncSession, challenge_details = schem
             time_taken_seconds += int(delta)
     # Determine win status from challenge_details
 
-    print(f"Challenge completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")
+  # print(f"Challenge completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")
 
     won = challenge_details.challenge_status == enums.ChallengeResult.WON_OBJECTIVE_COMPLETED or challenge_details.challenge_status == enums.ChallengeResult.WON if hasattr(challenge_details, 'challenge_status') else False
     # Attempt number: count previous attempts
@@ -258,7 +259,7 @@ async def complete_challenge_session(db: AsyncSession, challenge_details = schem
         difficulty=difficulty
     )
 
-    print(f"Challenge session completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")
+  # print(f"Challenge session completed with status: {challenge_details.challenge_status} and reason: {challenge_details.reason}")
 
     
     result = schemas.ChallengeCompletionResponse(

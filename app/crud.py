@@ -33,17 +33,26 @@ async def get_messages_between_users(db: AsyncSession, user1_id: int, user2_id: 
                 ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))
             ) &
             (models.Message.challenge_session_id == None)  # Exclude messages that are part of a challenge session
-        ).order_by(models.Message.timestamp).offset(offset).limit(limit)
+        ).order_by(models.Message.timestamp.desc()).offset(offset).limit(limit)
     )
-    return result.scalars().all()
+    messages = result.scalars().all()
+    # Reverse to return in chronological order
+    messages.reverse()
+    return messages
 
-async def get_messages_by_challenge_session_id(db: AsyncSession, challenge_session_id: int):
-    result = await db.execute(
-        select(models.Message).filter(
-            models.Message.challenge_session_id == challenge_session_id
-        ).order_by(models.Message.timestamp)
-    )
-    return result.scalars().all()
+async def get_messages_by_challenge_session_id(db: AsyncSession, challenge_session_id: int, limit: int | None = 10):
+    stmt = select(models.Message).filter(
+        models.Message.challenge_session_id == challenge_session_id
+    ).order_by(models.Message.timestamp.desc())
+    
+    if limit is not None:
+        stmt = stmt.limit(limit)
+        
+    result = await db.execute(stmt)
+    messages = result.scalars().all()
+    # Reverse to return in chronological order
+    messages.reverse()
+    return messages
 
 # --------------------------------------------------------------------------
 # personas CRUD

@@ -10,7 +10,7 @@ async def get_challenge_by_id(db: AsyncSession, challenge_id: str) -> schemas.Ch
     key = cache.create_challenge_key(challenge_id)
     cached = cache.retrieve_cache(key)
     if cached:
-        print(f"Challenge {challenge_id} retrieved from cache")
+      # print(f"Challenge {challenge_id} retrieved from cache")
         return schemas.ChallengeResponse.model_validate(cached)
 
     result = await crud.get_challenge_by_id(db, challenge_id)

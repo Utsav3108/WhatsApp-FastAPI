@@ -11,6 +11,6 @@ async def get_messages_between_users(db: AsyncSession, user1_id: int, user2_id: 
 
     return [MessageResponse.model_validate(m) for m in messages]
 
-async def get_message_by_session_id(db: AsyncSession, challenge_session_id: int) -> List[MessageResponse]:
-    messages = await crud.get_messages_by_challenge_session_id(db, challenge_session_id)
+async def get_message_by_session_id(db: AsyncSession, challenge_session_id: int, limit: int | None = 10) -> List[MessageResponse]:
+    messages = await crud.get_messages_by_challenge_session_id(db, challenge_session_id, limit=limit)
     return [MessageResponse.model_validate(m) for m in messages]

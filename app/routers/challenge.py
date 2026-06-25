@@ -45,7 +45,7 @@ async def setup_challenge(
     if request.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden: User ID does not match current user")
     try:
-        print("Received challenge setup request")
+      # print("Received challenge setup request")
         result = await setup_challenge_session(db, request)
         return result
         
@@ -53,19 +53,19 @@ async def setup_challenge(
         return schemas.ChallengeSetupResponse(message=str(ve))
         
     except ServerError as se:
-        print(f"Route caught ServerError: {se}")
+      # print(f"Route caught ServerError: {se}")
         return schemas.ChallengeSetupResponse(
             message="The AI engine is currently overloaded. Please wait a moment and try again."
         )
         
     except APIError as ae:
-        print(f"Route caught APIError: {ae}")
+      # print(f"Route caught APIError: {ae}")
         return schemas.ChallengeSetupResponse(
             message="AI Service is temporarily unavailable. Please try again later."
         )
         
     except Exception as e:
-        print(f"Unexpected System Error: {e}")
+      # print(f"Unexpected System Error: {e}")
         return schemas.ChallengeSetupResponse(
             message="A system error occurred while setting up the challenge."
         )

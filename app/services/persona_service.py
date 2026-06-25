@@ -8,7 +8,7 @@ async def get_persona_by_id(db: AsyncSession, persona_id: int):
     key = cache.create_persona_key(persona_id)
     cached = cache.retrieve_cache(key)
     if cached:
-        print(f"Persona {persona_id} retrieved from cache")
+      # print(f"Persona {persona_id} retrieved from cache")
         return PersonaResponse.model_validate(cached)
 
     result = await crud.get_persona_by_id(db, persona_id)

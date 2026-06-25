@@ -62,7 +62,8 @@ def invalidate_cache(key: str):
     try:
         redis_client.delete(key)
     except Exception as e:
-        print(f"Error invalidating cache key {key}: {e}")
+      # print(f"Error invalidating cache key {key}: {e}")
+      pass
 
 
 # =============== Utility functions to create cache keys ===============

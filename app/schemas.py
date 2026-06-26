@@ -241,9 +241,29 @@ class ChallengeSetupResponse(BaseModel):
     intro: Optional[StorylineResponse] = None
     status: Optional[enums.ChallengeResult] = None
     total_duration_minutes: Optional[int] = None
-    conversation_history: Optional[List[MessageResponse]] = None
     elapsed_seconds: int = 0
-    
+
+
+class ConversationRequest(BaseModel):
+    """Discriminated by which optional fields are present:
+    - sender_id + receiver_id  → persona-to-persona chat
+    - challenge_session_id      → ongoing challenge session
+    - attempt_session_id        → past completed challenge (treated as challenge_session_id)
+    """
+    sender_id: Optional[int] = None
+    receiver_id: Optional[int] = None
+    challenge_session_id: Optional[int] = None
+    attempt_session_id: Optional[int] = None
+
+
+class PaginatedMessagesResponse(BaseModel):
+    messages: List[MessageResponse]
+    page: int
+    page_size: int
+    total_count: int
+    total_pages: int
+    has_more: bool
+
 
 class ChallengeSessionResponse(BaseModel):
     id: int

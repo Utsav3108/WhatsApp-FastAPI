@@ -54,6 +54,63 @@ async def get_messages_by_challenge_session_id(db: AsyncSession, challenge_sessi
     messages.reverse()
     return messages
 
+async def get_messages_paginated_by_session(
+    db: AsyncSession,
+    challenge_session_id: int,
+    page: int = 1,
+    page_size: int = 10,
+) -> tuple[list, int]:
+    """Paginated fetch for challenge session messages. Returns (messages_in_chron_order, total_count)."""
+    base_filter = models.Message.challenge_session_id == challenge_session_id
+    offset = (page - 1) * page_size
+
+    total_result = await db.execute(select(func.count(models.Message.id)).filter(base_filter))
+    total_count = total_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.Message)
+        .filter(base_filter)
+        .order_by(models.Message.timestamp.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    messages = result.scalars().all()
+    messages.reverse()  # chronological order for display
+    return messages, total_count
+
+async def get_messages_paginated_between_users(
+    db: AsyncSession,
+    user1_id: int,
+    user2_id: int,
+    page: int = 1,
+    page_size: int = 10,
+) -> tuple[list, int]:
+    """Paginated fetch for persona-to-persona messages. Returns (messages_in_chron_order, total_count)."""
+    base_filter = (
+        (
+            ((models.Message.sender_id == user1_id) & (models.Message.receiver_id == user2_id)) |
+            ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))
+        ) &
+        (models.Message.challenge_session_id == None)
+    )
+    offset = (page - 1) * page_size
+
+    total_result = await db.execute(select(func.count(models.Message.id)).filter(base_filter))
+    total_count = total_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.Message)
+        .filter(base_filter)
+        .order_by(models.Message.timestamp.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    messages = result.scalars().all()
+    messages.reverse()
+    return messages, total_count
+
+
+
 # --------------------------------------------------------------------------
 # personas CRUD
 # --------------------------------------------------------------------------

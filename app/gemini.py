@@ -12,9 +12,10 @@ from app import models
 from app import schemas
 dotenv.load_dotenv()  # Load environment variables from .env file
 
-API_KEY = os.getenv("GEMINI_API_KEY")
 
-model = os.getenv("GEMINI_MODEL")  # or "gemini-3.5-turbo" for the newer model
+API_KEY = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_API_KEY")
+
+model = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_MODEL")  # or "gemini-3.5-turbo" for the newer model
 
 client = genai.Client(api_key=API_KEY)
 

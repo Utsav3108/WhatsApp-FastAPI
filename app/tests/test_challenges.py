@@ -313,11 +313,13 @@ class TestChallengesDashboard(unittest.IsolatedAsyncioTestCase):
             
             # Verify the response structure
             self.assertIsNotNone(resp.challenge_session_id)
-            self.assertIsNotNone(resp.conversation_history)
-            self.assertEqual(len(resp.conversation_history), 1)
-            self.assertEqual(resp.conversation_history[0].text, "Hello user, welcome to my challenge!")
-            self.assertEqual(resp.conversation_history[0].sender_id, self.persona3.id)
-            self.assertEqual(resp.conversation_history[0].receiver_id, self.user1.id)
+            
+            from app.crud import get_messages_by_challenge_session_id
+            db_messages = await get_messages_by_challenge_session_id(self.db, resp.challenge_session_id)
+            self.assertEqual(len(db_messages), 1)
+            self.assertEqual(db_messages[0].text, "Hello user, welcome to my challenge!")
+            self.assertEqual(db_messages[0].sender_id, self.persona3.id)
+            self.assertEqual(db_messages[0].receiver_id, self.user1.id)
 
     async def test_personas_filtering_non_human_only(self):
         from app.crud import get_all_personas, search_personas

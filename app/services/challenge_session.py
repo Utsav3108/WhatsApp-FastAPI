@@ -146,7 +146,6 @@ async def setup_challenge_session(
         intro=storyline,
         status=session.status,
         total_duration_minutes=challenge.estimated_duration_minutes,
-        conversation_history=conversation_history,
         elapsed_seconds=session.elapsed_seconds
     )
 
@@ -164,14 +163,10 @@ async def _build_existing_session_response(
         await db.commit()
         await db.refresh(session)
 
-    conversation_history = await message_service.get_message_by_session_id(
-        db,
-        session.id,
-        limit=None
-    )
+    # Messages are no longer embedded in setup response.
+    # Client fetches via GET /conversations?challenge_session_id=<id>&page=1
 
     intro = None
-
     if session.storyline:
         intro = schemas.StorylineResponse(
             storyline=session.storyline,
@@ -185,7 +180,6 @@ async def _build_existing_session_response(
         intro=intro,
         status=session.status,
         total_duration_minutes=challenge.estimated_duration_minutes,
-        conversation_history=conversation_history,
         elapsed_seconds=session.elapsed_seconds
     )
 

@@ -14,7 +14,7 @@ dotenv.load_dotenv()  # Load environment variables from .env file
 
 API_KEY = os.getenv("GEMINI_API_KEY")
 
-model = "gemini-3-flash-preview"  # or "gemini-3.5-turbo" for the newer model
+model = os.getenv("GEMINI_MODEL")  # or "gemini-3.5-turbo" for the newer model
 
 client = genai.Client(api_key=API_KEY)
 

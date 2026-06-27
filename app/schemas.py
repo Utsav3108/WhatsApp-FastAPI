@@ -354,3 +354,19 @@ class CategoryResponse(CategoryBase):
 
     class Config:
         from_attributes = True
+
+class AIContentReportCreate(BaseModel):
+    message_id: int
+    conversation_id: Optional[int] = None
+    persona_id: int
+    user_prompt: Optional[str] = None
+    ai_response: str
+    reason: str
+    description: Optional[str] = None
+
+class AIContentReportResponse(AIContentReportCreate):
+    id: int
+    timestamp: datetime.datetime
+
+    class Config:
+        from_attributes = True

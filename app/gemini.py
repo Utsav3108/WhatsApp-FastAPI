@@ -1,5 +1,6 @@
 
 from google import genai
+from google.genai import types
 import time
 from google.genai.errors import ServerError, APIError 
 import os
@@ -11,6 +12,26 @@ import json
 from app import models
 from app import schemas
 dotenv.load_dotenv()  # Load environment variables from .env file
+
+def check_safety_fallback(text: str) -> bool:
+    """
+    Returns True if the text violates safety policies.
+    Filters child exploitation and deceptive behavior.
+    """
+    if not text:
+        return False
+    prohibited_keywords = [
+        "child exploitation", "child abuse", "exploit child", "abuse child",
+        "pedophilia", "csam", "grooming",
+        "deceptive behavior", "identity theft", "credit card fraud",
+        "phishing tutorial", "how to hack bank", "generate counterfeit",
+        "make bomb", "synthesize meth", "suicide instruction"
+    ]
+    text_lower = text.lower()
+    for keyword in prohibited_keywords:
+        if keyword in text_lower:
+            return True
+    return False
 
 
 API_KEY = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_API_KEY")
@@ -304,24 +325,58 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
             
         """
 
-    # print("System Instructions for Gemini:", system_instructions)
-    chat = client.chats.create(
-        model=model, 
-        config={"system_instruction": system_instructions},
-        history=formatted_history  
-    )
-    response = chat.send_message(question)
+    # Check user prompt safety first (fallback filter)
+    if check_safety_fallback(question):
+        ai_text = "I cannot generate content matching that request. Please keep the conversation safe and constructive."
+    else:
+        safety_settings = [
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+            ),
+            types.SafetySetting(
+                category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+            ),
+        ]
+        
+        try:
+            config = types.GenerateContentConfig(
+                system_instruction=system_instructions,
+                safety_settings=safety_settings
+            )
+            chat = client.chats.create(
+                model=model, 
+                config=config,
+                history=formatted_history  
+            )
+            response = chat.send_message(question)
+            ai_text = response.text
+            
+            # Check AI response safety (fallback filter)
+            if check_safety_fallback(ai_text):
+                ai_text = "I cannot generate content matching that request. Please keep the conversation safe and constructive."
+        except Exception as e:
+            # Fallback if Gemini blocks or throws API error
+            ai_text = "I cannot generate content matching that request. Please keep the conversation safe and constructive."
 
-    MessageCreate = {
+    MessageCreate_data = {
         "sender_id": persona.id,
         "receiver_id": senderId,
-        "text": response.text,
+        "text": ai_text,
         "challenge_session_id": challenge_session_id
     }
 
-    MessageCreate = schemas.MessageCreate(**MessageCreate)
-
-    return MessageCreate
+    MessageCreate_obj = schemas.MessageCreate(**MessageCreate_data)
+    return MessageCreate_obj
 
 def create_storyline(challenge: models.Challenge, persona: models.Persona = None) -> schemas.StorylineResponse:
     # Safely extract context elements in case they are missing

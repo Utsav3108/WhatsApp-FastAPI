@@ -257,3 +257,20 @@ class Category(Base):
     keywords = Column(CompatibleJSON, nullable=True)
     icon = Column(String, nullable=True)
     gradient_colors = Column(CompatibleJSON, nullable=True)
+
+class AIContentReport(Base):
+    __tablename__ = "ai_content_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("challenge_sessions.id"), nullable=True, index=True)
+    persona_id = Column(Integer, ForeignKey("personas.id"), nullable=False, index=True)
+    user_prompt = Column(String, nullable=True)
+    ai_response = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+    message = relationship("Message")
+    persona = relationship("Persona", foreign_keys=[persona_id])
+    conversation = relationship("ChallengeSession", foreign_keys=[conversation_id])

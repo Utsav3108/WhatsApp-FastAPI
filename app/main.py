@@ -9,6 +9,7 @@ from app.routers.persona import router as persona_router
 from app.routers.challenge import router as challenge_router
 from app.routers.category import router as category_router
 from app.routers.conversations import router as conversations_router
+from app.routers.reports import router as reports_router
 from fastapi import Depends
 from app.socketio_server import sio_app
 
@@ -51,6 +52,7 @@ app.include_router(persona_router, dependencies=[Depends(get_current_user)])
 app.include_router(challenge_router, dependencies=[Depends(get_current_user)])
 app.include_router(category_router, dependencies=[Depends(get_current_user)])
 app.include_router(conversations_router, dependencies=[Depends(get_current_user)])
+app.include_router(reports_router, dependencies=[Depends(get_current_user)])
 
 allowed_origins = dotenv.get_key(dotenv.find_dotenv(), "ALLOWED_ORIGINS").split(",")
 

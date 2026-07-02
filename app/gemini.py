@@ -13,26 +13,6 @@ from app import models
 from app import schemas
 dotenv.load_dotenv()  # Load environment variables from .env file
 
-def check_safety_fallback(text: str) -> bool:
-    """
-    Returns True if the text violates safety policies.
-    Filters child exploitation and deceptive behavior.
-    """
-    if not text:
-        return False
-    prohibited_keywords = [
-        "child exploitation", "child abuse", "exploit child", "abuse child",
-        "pedophilia", "csam", "grooming",
-        "deceptive behavior", "identity theft", "credit card fraud",
-        "phishing tutorial", "how to hack bank", "generate counterfeit",
-        "make bomb", "synthesize meth", "suicide instruction"
-    ]
-    text_lower = text.lower()
-    for keyword in prohibited_keywords:
-        if keyword in text_lower:
-            return True
-    return False
-
 
 API_KEY = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_API_KEY")
 
@@ -232,6 +212,8 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
 # Strict isolation rules injected directly at the top
     fresh_start_directive = f"""
     # CRITICAL EXECUTION RULES
+    - STRICT: ONLY ENTERTAIN USER'S QUESTION about your persona likes/dislikes, interests, and personality. Do NOT hallucinate or invent any user behavior or context.     
+    - Example: An actor persona should not explain rocket science or coding to user, in any condition.
     - CURRENT SESSION: This is a completely isolated, independent gameplay session (Attempt number: {attempt}).
     """
 
@@ -325,48 +307,20 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
             
         """
 
-    # Check user prompt safety first (fallback filter)
-    if check_safety_fallback(question):
-        ai_text = "I cannot generate content matching that request. Please keep the conversation safe and constructive."
-    else:
-        safety_settings = [
-            types.SafetySetting(
-                category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-            ),
-            types.SafetySetting(
-                category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-            ),
-            types.SafetySetting(
-                category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-            ),
-            types.SafetySetting(
-                category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                threshold=types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
-            ),
-        ]
-        
-        try:
-            config = types.GenerateContentConfig(
-                system_instruction=system_instructions,
-                safety_settings=safety_settings
-            )
-            chat = client.chats.create(
-                model=model, 
-                config=config,
-                history=formatted_history  
-            )
-            response = chat.send_message(question)
-            ai_text = response.text
-            
-            # Check AI response safety (fallback filter)
-            if check_safety_fallback(ai_text):
-                ai_text = "I cannot generate content matching that request. Please keep the conversation safe and constructive."
-        except Exception as e:
-            # Fallback if Gemini blocks or throws API error
-            ai_text = "I cannot generate content matching that request. Please keep the conversation safe and constructive."
+    try:
+        config = types.GenerateContentConfig(
+            system_instruction=system_instructions
+        )
+        chat = client.chats.create(
+            model=model, 
+            config=config,
+            history=formatted_history  
+        )
+        response = chat.send_message(question)
+        ai_text = response.text
+    except Exception as e:
+        print(f"Error generating response from Gemini: {e}")
+        ai_text = "Can we continue this conversation later? I'm having trouble in my stomach and need to step away for a moment."
 
     MessageCreate_data = {
         "sender_id": persona.id,

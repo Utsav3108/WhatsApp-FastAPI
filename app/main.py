@@ -13,8 +13,6 @@ from app.routers.reports import router as reports_router
 from fastapi import Depends
 from app.socketio_server import sio_app
 
-from app import schemas, crud
-from app.database import SessionLocal
 
 import dotenv
 dotenv.load_dotenv()
@@ -71,3 +69,12 @@ async def root():
 
 # Mount Socket.IO at /socket.io
 app.mount("/socket.io", sio_app)
+
+
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def read_privacy():
+    with open("privacy.html", "r") as f:
+        return f.read()

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 import os
 import traceback
@@ -256,104 +257,200 @@ async def handle_send_message(payload, db: AsyncSession, sid):
         )
 
 
-async def handle_gemini_response(message : schemas.MessageCreate, past_messages, sid, challenge : Optional[schemas.ChallengeResponse] = None, challenge_session_id=None):
+async def handle_gemini_response(message: schemas.MessageCreate, past_messages, sid, challenge: Optional[schemas.ChallengeResponse] = None, challenge_session_id=None):
     """
-    Background task that uses its own independent database session.
-    This avoids using a closed session and prevents connection leaks.
+    Background task. DB sessions are opened only for brief read/write windows;
+    both Gemini calls (ask_gemini, evaluate_challenge) run with no session held.
     """
-
-  # print("""\n=== Handling Gemini Response in Background Task ===""")
-
-    # Create a new DB session for this background task
-    async with SessionLocal() as db:
-        try:
-            # Get persona info
+    try:
+        # ---------- PHASE 1: READS ----------
+        async with SessionLocal() as db:
             persona = await persona_service.get_persona_by_id(db, message.receiver_id)
 
-            # Get user info
             try:
                 user_persona = await persona_service.get_persona_by_id(db, message.sender_id)
                 user_name = user_persona.name if user_persona else "User"
             except ValueError:
+                user_persona = None
                 user_name = "User"
 
             attempt = None
             if challenge:
                 attempt = await challenge_service.get_attempt_number(db, challenge.id, message.sender_id)
+        # connection released
 
-            # Generate Gemini response
-            gemini_response_in = ask_gemini(
-                message.text,
-                persona,
-                user_name=user_name,
-                user_role=user_persona.role if user_persona else None,
-                user_bio=user_persona.bio if user_persona else None,
-                senderId=message.sender_id,
-                past_messages=past_messages,
-                challenge=challenge,
-                challenge_session_id=challenge_session_id,
-                attempt=attempt
-            )
+        # ---------- PHASE 2: GEMINI CALL #1 (no session held) ----------
+        gemini_response_in = await asyncio.to_thread(
+            ask_gemini,
+            message.text,
+            persona,
+            user_name=user_name,
+            user_role=user_persona.role if user_persona else None,
+            user_bio=user_persona.bio if user_persona else None,
+            senderId=message.sender_id,
+            past_messages=past_messages,
+            challenge=challenge,
+            challenge_session_id=challenge_session_id,
+            attempt=attempt
+        )
 
-            # Save Gemini response
-            gemini_message = await crud.create_message(db, gemini_response_in)
+        # ---------- PHASE 3: WRITE THE MESSAGE (short session) ----------
+        async with SessionLocal() as db:
+            try:
+                gemini_message = await crud.create_message(db, gemini_response_in)
+                validated_gemini_response = schemas.MessageResponse.model_validate(gemini_message)
 
-            validated_gemini_response = schemas.MessageResponse.model_validate(
-                gemini_message
-            )
-
-            # Determine message routing: challenge room or user-specific persona chat room
-            if message.challenge_session_id:
-                room = f"challenge:{message.challenge_session_id}"
-            else:
-                room = f"user:{validated_gemini_response.receiver_id}"
-
-            # Send response back to the connected client
-            await sio.emit(
-                "receive_message",
-                validated_gemini_response.model_dump_json(),
-                room=room
-            )
-
-            # Update in-memory history
-            past_messages.append(message)
-            past_messages.append(validated_gemini_response)
-
-            if challenge:
-                # Check if the session is still active before evaluating
                 is_session_active = True
-                if challenge_session_id:
-                    session_res = await db.execute(select(crud.models.ChallengeSession).filter(crud.models.ChallengeSession.id == challenge_session_id))
+                if challenge and challenge_session_id:
+                    session_res = await db.execute(
+                        select(crud.models.ChallengeSession).filter(
+                            crud.models.ChallengeSession.id == challenge_session_id
+                        )
+                    )
                     session = session_res.scalars().first()
                     if session and session.status != 'active':
                         is_session_active = False
+            except Exception:
+                await db.rollback()
+                traceback.print_exc()
+                return
+        # connection released
 
-                if is_session_active:
-                    eval : schemas.EvaluationResponse = evaluate_challenge(
-                        challenge,
-                        past_messages,
-                        persona,
-                        user_name=user_name,
-                        user_id=message.sender_id
-                    )
+        # ---------- EMIT + UPDATE IN-MEMORY HISTORY (no DB needed) ----------
+        room = (
+            f"challenge:{message.challenge_session_id}"
+            if message.challenge_session_id
+            else f"user:{validated_gemini_response.receiver_id}"
+        )
+        await sio.emit(
+            "receive_message",
+            validated_gemini_response.model_dump_json(),
+            room=room
+        )
+        past_messages.append(message)
+        past_messages.append(validated_gemini_response)
 
-                  # print("""\n=== Challenge Evaluation ===""")
-                  # print(f"Evaluation result: {eval.status}")
-                  # print(f"Evaluation reasoning: {eval.reasoning}")
+        # ---------- PHASE 4: GEMINI CALL #2 — EVALUATION (no session held) ----------
+        if challenge and is_session_active:
+            eval: schemas.EvaluationResponse = await asyncio.to_thread(
+                evaluate_challenge,
+                challenge,
+                past_messages,
+                persona,
+                user_name=user_name,
+                user_id=message.sender_id
+            )
 
-                    if eval.status != ChallengeResult.ACTIVE :
-                        # Send response back to the connected client
-                        asyncio.create_task(
-                            complete_challenge(sid, message.sender_id, challenge.id, challenge_session_id, eval)
-                        )
-                else:
-                  # print(f"Session {challenge_session_id} is not active (status: {session.status if session else 'unknown'}). Skipping challenge evaluation.")
-                    pass
-            else:
-              # print(f"Gemini response {gemini_message.text}")
-              pass
+            if eval.status != ChallengeResult.ACTIVE:
+                # complete_challenge presumably opens its own short-lived session internally
+                asyncio.create_task(
+                    complete_challenge(sid, message.sender_id, challenge.id, challenge_session_id, eval)
+                )
 
-        except Exception as e:
-            await db.rollback()
-          # print(f"Error in handle_gemini_response: {e}")
-            traceback.print_exc()
+    except Exception:
+        traceback.print_exc()
+
+# async def handle_gemini_response(message : schemas.MessageCreate, past_messages, sid, challenge : Optional[schemas.ChallengeResponse] = None, challenge_session_id=None):
+#     """
+#     Background task that uses its own independent database session.
+#     This avoids using a closed session and prevents connection leaks.
+#     """
+
+#   # print("""\n=== Handling Gemini Response in Background Task ===""")
+
+#     # Create a new DB session for this background task
+#     async with SessionLocal() as db:
+#         try:
+#             # Get persona info
+#             persona = await persona_service.get_persona_by_id(db, message.receiver_id)
+
+#             # Get user info
+#             try:
+#                 user_persona = await persona_service.get_persona_by_id(db, message.sender_id)
+#                 user_name = user_persona.name if user_persona else "User"
+#             except ValueError:
+#                 user_name = "User"
+
+#             attempt = None
+#             if challenge:
+#                 attempt = await challenge_service.get_attempt_number(db, challenge.id, message.sender_id)
+
+#             # Generate Gemini response
+#             gemini_response_in = ask_gemini(
+#                 message.text,
+#                 persona,
+#                 user_name=user_name,
+#                 user_role=user_persona.role if user_persona else None,
+#                 user_bio=user_persona.bio if user_persona else None,
+#                 senderId=message.sender_id,
+#                 past_messages=past_messages,
+#                 challenge=challenge,
+#                 challenge_session_id=challenge_session_id,
+#                 attempt=attempt
+#             )
+
+
+#             end_time = datetime.now()
+
+#             # Save Gemini response
+#             gemini_message = await crud.create_message(db, gemini_response_in)
+
+#             validated_gemini_response = schemas.MessageResponse.model_validate(
+#                 gemini_message
+#             )
+
+#             # Determine message routing: challenge room or user-specific persona chat room
+#             if message.challenge_session_id:
+#                 room = f"challenge:{message.challenge_session_id}"
+#             else:
+#                 room = f"user:{validated_gemini_response.receiver_id}"
+
+#             # Send response back to the connected client
+#             await sio.emit(
+#                 "receive_message",
+#                 validated_gemini_response.model_dump_json(),
+#                 room=room
+#             )
+
+#             # Update in-memory history
+#             past_messages.append(message)
+#             past_messages.append(validated_gemini_response)
+
+#             if challenge:
+#                 # Check if the session is still active before evaluating
+#                 is_session_active = True
+#                 if challenge_session_id:
+#                     session_res = await db.execute(select(crud.models.ChallengeSession).filter(crud.models.ChallengeSession.id == challenge_session_id))
+#                     session = session_res.scalars().first()
+#                     if session and session.status != 'active':
+#                         is_session_active = False
+
+#                 if is_session_active:
+#                     eval : schemas.EvaluationResponse = evaluate_challenge(
+#                         challenge,
+#                         past_messages,
+#                         persona,
+#                         user_name=user_name,
+#                         user_id=message.sender_id
+#                     )
+
+#                   # print("""\n=== Challenge Evaluation ===""")
+#                   # print(f"Evaluation result: {eval.status}")
+#                   # print(f"Evaluation reasoning: {eval.reasoning}")
+
+#                     if eval.status != ChallengeResult.ACTIVE :
+#                         # Send response back to the connected client
+#                         asyncio.create_task(
+#                             complete_challenge(sid, message.sender_id, challenge.id, challenge_session_id, eval)
+#                         )
+#                 else:
+#                   # print(f"Session {challenge_session_id} is not active (status: {session.status if session else 'unknown'}). Skipping challenge evaluation.")
+#                     pass
+#             else:
+#               # print(f"Gemini response {gemini_message.text}")
+#               pass
+
+#         except Exception as e:
+#             await db.rollback()
+#           # print(f"Error in handle_gemini_response: {e}")
+#             traceback.print_exc()

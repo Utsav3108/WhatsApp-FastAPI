@@ -20,6 +20,9 @@ model = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_MODEL")  # or "gemini-3.5-t
 
 client = genai.Client(api_key=API_KEY)
 
+# Put this at the top of gemini.py
+active_chats = {}
+
 def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTraits, str]) -> tuple[str, str]:
     """
     Parses the traits. If it is StructuredTraits (or JSON string), formats it into a detailed prompt.
@@ -193,7 +196,7 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
 
     return formatted_traits, example_prompt
 
-def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
+async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
     past_messages = past_messages[-10:]  # Limit to last 10 historical messages
     
@@ -307,17 +310,31 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
             
         """
 
+# Use the session ID as a unique key for the active chat
+    chat_key = challenge_session_id or f"user_{senderId}"
+
+    config = types.GenerateContentConfig(
+        system_instruction=system_instructions
+    )
+
     try:
-        config = types.GenerateContentConfig(
-            system_instruction=system_instructions
-        )
-        chat = client.chats.create(
-            model=model, 
-            config=config,
-            history=formatted_history  
-        )
-        response = chat.send_message(question)
+        # Check if we already have an active chat session in memory
+        if chat_key in active_chats:
+            chat = active_chats[chat_key]
+        else:
+            # Only rebuild from history if this is the first message of the session
+            chat = client.aio.chats.create(
+                model=model, 
+                config=config,
+                history=formatted_history  
+            )
+            # Save it to memory so we don't have to rebuild it next time!
+            active_chats[chat_key] = chat
+
+        # Send the message to the ongoing session
+        response = await chat.send_message(question)
         ai_text = response.text
+
     except Exception as e:
         print(f"Error generating response from Gemini: {e}")
         ai_text = "Can we continue this conversation later? I'm having trouble in my stomach and need to step away for a moment."
@@ -332,7 +349,7 @@ def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", 
     MessageCreate_obj = schemas.MessageCreate(**MessageCreate_data)
     return MessageCreate_obj
 
-def create_storyline(challenge: models.Challenge, persona: models.Persona = None) -> schemas.StorylineResponse:
+async def create_storyline(challenge: models.Challenge, persona: models.Persona = None) -> schemas.StorylineResponse:
     # Safely extract context elements in case they are missing
     context_data = challenge.context if challenge.context else None
     setting = context_data.setting if context_data else "Unknown setting"
@@ -387,7 +404,7 @@ def create_storyline(challenge: models.Challenge, persona: models.Persona = None
 
     for attempt in range(max_retries):
         try:
-            response = client.models.generate_content(
+            response = await client.aio.models.generate_content(
                 model=model,
                 contents= prompt,
                 config={
@@ -417,7 +434,7 @@ def create_storyline(challenge: models.Challenge, persona: models.Persona = None
     # The SDK automatically parses the JSON text into your Pydantic object
     return response.parsed
 
-def evaluate_challenge(
+async def evaluate_challenge(
     challenge: schemas.ChallengeResponse,
     past_messages: List[schemas.MessageResponse],
     persona: schemas.PersonaResponse,
@@ -496,7 +513,7 @@ def evaluate_challenge(
 
     for attempt in range(max_retries):
         try:
-            response = client.models.generate_content(
+            response = await client.aio.models.generate_content(
                 model=model,
                 contents=prompt,
                 config={

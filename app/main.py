@@ -1,8 +1,12 @@
+import os
+
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app import models
 from app.database import engine
-import os
+
+
+
 import json
 from app.routers.auth import router as auth_router, get_current_user
 from app.routers.persona import router as persona_router

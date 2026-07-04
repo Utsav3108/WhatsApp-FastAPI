@@ -37,6 +37,9 @@ else:
 sio_app = socketio.ASGIApp(sio)
 manager = ConnectionManager()
 
+# Track in-flight Gemini background tasks so we can cancel them on leave/disconnect
+_background_tasks: dict[str, asyncio.Task] = {}  # chat_key -> asyncio.Task
+
 
 # --------------------------------------------------------------------------
 # Connection Events
@@ -56,6 +59,15 @@ async def disconnect(sid):
         user_id = session.get("user_id")
         print(f"Socket.IO: disconnect session user_id found: {user_id}")
         if user_id:
+            # Cancel all in-flight Gemini tasks for this user
+            prefix = f"user_{user_id}_"
+            keys_to_cancel = [k for k in _background_tasks if k.startswith(prefix)]
+            for k in keys_to_cancel:
+                task = _background_tasks.pop(k, None)
+                if task and not task.done():
+                    task.cancel()
+                    print(f"Cancelled in-flight task for: {k}")
+
             from app.gemini import clear_user_active_chats
             clear_user_active_chats(user_id)
 
@@ -66,6 +78,20 @@ async def leave_chat(sid, data):
     persona_id = data.get("persona_id")
     challenge_session_id = data.get("challenge_session_id")
     if user_id:
+        # Cancel in-flight Gemini task for this specific chat
+        if challenge_session_id:
+            chat_key = f"user_{user_id}_session_{challenge_session_id}"
+        elif persona_id:
+            chat_key = f"user_{user_id}_persona_{persona_id}"
+        else:
+            chat_key = None
+        
+        if chat_key:
+            task = _background_tasks.pop(chat_key, None)
+            if task and not task.done():
+                task.cancel()
+                print(f"Cancelled in-flight task for: {chat_key}")
+
         from app.gemini import clear_active_chat
         clear_active_chat(user_id, persona_id=persona_id, challenge_session_id=challenge_session_id)
 
@@ -263,14 +289,30 @@ async def handle_send_message(payload, db: AsyncSession, sid):
             if m.id != message.id
         ]
 
+    # Build the chat_key so we can track the background task
+    chat_key = f"user_{message_in.sender_id}_session_{challenge_session.id}" if challenge_session else f"user_{message_in.sender_id}_persona_{message_in.receiver_id}"
+
+    # Cancel any previous in-flight task for the same chat to avoid parallel Gemini calls
+    prev_task = _background_tasks.pop(chat_key, None)
+    if prev_task and not prev_task.done():
+        prev_task.cancel()
+
     if challenge_session:
-        asyncio.create_task(
+        task = asyncio.create_task(
             handle_gemini_response(message, past_messages, sid, challenge, challenge_session.id)
         )
     else:
-        asyncio.create_task(
+        task = asyncio.create_task(
             handle_gemini_response(message, past_messages, sid)
         )
+
+    # Store the task reference so leave_chat / disconnect can cancel it
+    _background_tasks[chat_key] = task
+
+    # Auto-cleanup when the task finishes
+    def _on_done(t, key=chat_key):
+        _background_tasks.pop(key, None)
+    task.add_done_callback(_on_done)
 
 
 async def handle_gemini_response(message: schemas.MessageCreate, past_messages, sid, challenge: Optional[schemas.ChallengeResponse] = None, challenge_session_id=None):

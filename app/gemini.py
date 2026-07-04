@@ -2,6 +2,7 @@
 from google import genai
 from google.genai import types
 import time
+import asyncio
 from google.genai.errors import ServerError, APIError 
 import os
 import dotenv
@@ -16,42 +17,16 @@ dotenv.load_dotenv()  # Load environment variables from .env file
 
 API_KEY = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_API_KEY")
 
-model = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_MODEL")  # or "gemini-3.5-turbo" for the newer model
+model = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_MODEL")
 
 client = genai.Client(api_key=API_KEY)
 
-# Put this at the top of gemini.py
-active_chats = {}
-
+# Active chats are now stateless. These stubs are kept for compatibility with socketio_server.py.
 def clear_active_chat(user_id: int, persona_id: int = None, challenge_session_id: int = None):
-    """
-    Remove specific chat session(s) from memory.
-    """
-    if challenge_session_id:
-        key = f"user_{user_id}_session_{challenge_session_id}"
-        if key in active_chats:
-            del active_chats[key]
-    elif persona_id:
-        key = f"user_{user_id}_persona_{persona_id}"
-        if key in active_chats:
-            del active_chats[key]
+    pass
 
-    print("============================================================") 
-    print("Active chats after clearing:", active_chats)  # Debugging line to check the state of active_chats
-    print("============================================================") 
 def clear_user_active_chats(user_id: int):
-    """
-    Remove all ongoing chat sessions for a particular user.
-    """
-    prefix = f"user_{user_id}_"
-    keys_to_delete = [k for k in active_chats if k.startswith(prefix)]
-    for k in keys_to_delete:
-        if k in active_chats:
-            del active_chats[k]
-
-    print("============================================================") 
-    print(f"Cleared all active chats for user {user_id}. Remaining active chats:", active_chats)  # Debugging line
-    print("============================================================") 
+    pass
     
 def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTraits, str]) -> tuple[str, str]:
     """
@@ -340,36 +315,22 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
             
         """
 
-    # Use user + session ID or user + persona ID as a unique key for the active chat
-    chat_key = f"user_{senderId}_session_{challenge_session_id}" if challenge_session_id else f"user_{senderId}_persona_{persona.id}"
 
     config = types.GenerateContentConfig(
         system_instruction=system_instructions
     )
 
+    contents = formatted_history + [{
+        "role": "user",
+        "parts": [{"text": question}]
+    }]
+
     try:
-        # Check if we already have an active chat session in memory
-        if chat_key in active_chats:
-            chat = active_chats[chat_key]
-            print("============================================================")  # Debugging line to separate logs
-            print(f"Using existing Gemini chat session for key: {chat_key}. Active chats: {list(active_chats.keys())}")  # Debugging line to check active chats
-            print("Count of Active Chats:", len(active_chats))  # Debugging line to check the count of active chats
-            print("============================================================") 
-        else:
-            # Only rebuild from history if this is the first message of the session
-            chat = client.aio.chats.create(
-                model=model, 
-                config=config,
-                history=formatted_history  
-            )
-            # Save it to memory so we don't have to rebuild it next time!
-            active_chats[chat_key] = chat
-            print("============================================================") 
-            print(f"Created new Gemini chat session for key: {chat_key}. Active chats: {list(active_chats.keys())}")  # Debugging line to check active chats
-            print("Count of Active Chats:", len(active_chats))  # Debugging line to check the count of active chats
-            print("============================================================") 
-        # Send the message to the ongoing session
-        response = await chat.send_message(question)
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config
+        )
         ai_text = response.text
 
     except Exception as e:
@@ -461,7 +422,7 @@ async def create_storyline(challenge: models.Challenge, persona: models.Persona 
             # Wait longer with each failure (Exponential Backoff)
             delay = base_delay * (2 ** attempt) 
           # print(f"Gemini busy (503). Retrying in {delay} seconds (Attempt {attempt + 1}/{max_retries})...")
-            time.sleep(delay)
+            await asyncio.sleep(delay)
 
         except APIError as e:
             # Catch other general Google API issues (like 400 Bad Request, 403 Forbidden)
@@ -568,7 +529,7 @@ async def evaluate_challenge(
             
             delay = base_delay * (2 ** attempt) 
           # print(f"Gemini busy (503). Retrying evaluation in {delay} seconds (Attempt {attempt + 1}/{max_retries})...")
-            time.sleep(delay)
+            await asyncio.sleep(delay)
 
         except APIError as e:
           # print(f"Gemini Evaluation API Error: {e}")

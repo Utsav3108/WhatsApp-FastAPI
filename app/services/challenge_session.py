@@ -76,7 +76,7 @@ async def setup_challenge_session(
     else:
       # print("Creating new storyline for challenge.")
 
-        storyline = create_storyline(challenge, persona)
+        storyline = await create_storyline(challenge, persona)
         if storyline and challenge.context and not getattr(storyline, 'end_goal', None):
             storyline.end_goal = challenge.context.goal
 
@@ -124,7 +124,7 @@ async def setup_challenge_session(
 
         opening_prompt = "Initiate the conversation as your persona. Send a message to start the interaction."
         
-        gemini_response_in = ask_gemini(
+        gemini_response_in = await ask_gemini(
             question=opening_prompt,
             persona=persona_validated,
             user_name=user_name,

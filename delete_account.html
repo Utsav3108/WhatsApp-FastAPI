@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ripple • Delete Account & Data Request</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pacifico&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+--bg:#000;
+--card:#1A1A1A;
+--accent:#E6F58A;
+--text:#fff;
+--muted:#a8a8a8;
+--border:#2a2a2a;
+--danger:#FF6B6B;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+background:var(--bg);
+color:var(--text);
+font-family:Poppins,sans-serif;
+line-height:1.8;
+}
+.container{max-width:920px;margin:auto;padding:40px 20px 80px;}
+.hero{
+position:relative;
+overflow:hidden;
+padding:70px 40px;
+margin-bottom:32px;
+border-radius:28px;
+border:1px solid var(--border);
+background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));
+}
+.hero-glow{
+position:absolute;
+width:420px;
+height:420px;
+right:-140px;
+top:-170px;
+background:var(--accent);
+border-radius:50%;
+filter:blur(140px);
+opacity:.18;
+animation:floatGlow 8s ease-in-out infinite alternate;
+pointer-events:none;
+}
+.logo{
+width:72px;height:72px;border-radius:20px;
+display:flex;align-items:center;justify-content:center;
+background:var(--accent);
+color:#000;
+font-family: 'Pacifico', cursive;
+font-weight:400;font-size:36px;
+padding-top: 4px;
+margin-bottom:20px;
+position:relative;
+animation:pulse 2.5s ease-in-out infinite alternate;
+}
+.badge{
+display:inline-block;
+padding:8px 14px;
+border-radius:999px;
+background:rgba(255,107,107,.12);
+color:var(--danger);
+font-size:14px;
+margin-bottom:16px;
+font-weight: 500;
+}
+h1{
+font-family: 'Pacifico', cursive;
+font-size:44px;
+font-weight:400;
+letter-spacing:0px;
+}
+.subtitle{color:var(--muted);margin-top:12px}
+.card{
+background:var(--card);
+border:1px solid var(--border);
+border-radius:24px;
+padding:30px;
+margin-bottom:22px;
+animation:fadeUp .7s ease both;
+}
+h2{color:var(--accent);margin-bottom:16px}
+h3{margin:20px 0 8px}
+p{color:#ddd}
+ul, ol{margin-left:22px;margin-top:10px}
+li{margin-bottom:12px}
+a{color:var(--accent);text-decoration:none}
+.danger-text {
+color: var(--danger);
+font-weight: bold;
+}
+.footer{text-align:center;color:var(--muted);margin-top:30px}
+@keyframes floatGlow{
+from{transform:translate(0,0) scale(1)}
+to{transform:translate(-40px,35px) scale(1.15)}
+}
+@keyframes pulse{
+from{box-shadow:0 0 0 rgba(230,245,138,0)}
+to{box-shadow:0 0 30px rgba(230,245,138,.35)}
+}
+@keyframes fadeUp{
+from{opacity:0;transform:translateY(25px)}
+to{opacity:1;transform:translateY(0)}
+}
+@media(max-width:700px){
+.hero{padding:40px 24px}
+h1{font-size:32px}
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="hero">
+        <div class="hero-glow"></div>
+        <div class="logo">R</div>
+        <div class="badge">Google Play Data Safety compliant</div>
+        <h1>Ripple</h1>
+        <div class="subtitle">Account Deletion & Data Removal Request Form</div>
+        <p style="margin-top: 10px; color: var(--muted); font-size: 13px;">Developer: Utsav Pandya</p>
+    </div>
+
+    <div class="card">
+        <h2>How to Delete Your Account</h2>
+        <p>You can delete your Ripple account and all associated personal data directly from inside the app at any time. Follow these steps:</p>
+        <ol>
+            <li>Open the <strong>Ripple</strong> app on your mobile device.</li>
+            <li>Navigate to your <strong>Profile</strong> tab (the right-most icon in the bottom navigation bar).</li>
+            <li>Scroll down to the bottom of the Profile page.</li>
+            <li>Click the red <strong>Delete Account</strong> button.</li>
+            <li>A confirmation dialog will appear, detailing the permanent removal of your data. Click <strong>Delete</strong> to confirm.</li>
+        </ol>
+        <p style="margin-top: 16px;">Once confirmed, your account session is invalidated, and your database records are erased immediately and permanently.</p>
+    </div>
+
+    <div class="card">
+        <h2>Alternative Deletion Request</h2>
+        <p>If you have uninstalled the Ripple application, do not have access to your mobile device, or want to make a request manually, you can contact the developer, <strong>Utsav Pandya</strong>, to delete your account:</p>
+        <ul style="margin-top: 10px;">
+            <li><strong>Email:</strong> send an email request to <a href="mailto:pandyautsav3108@gmail.com">pandyautsav3108@gmail.com</a>.</li>
+            <li><strong>Requirement:</strong> Please send the email from the Google account you used to register in the Ripple app so we can verify your identity.</li>
+            <li><strong>Processing Time:</strong> Manual deletion requests are processed within 2-3 business days. You will receive an email confirmation once the process is complete.</li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>What Data is Deleted or Retained?</h2>
+        <p>We believe in absolute user privacy. When you request account deletion (either via the app or via email), the following actions take place:</p>
+        <h3 class="danger-text">Data That is Permanently Deleted:</h3>
+        <ul>
+            <li><strong>Profile Information:</strong> Your name, email, professional/personal role, biography context, and avatar image link.</li>
+            <li><strong>Chat History:</strong> All conversation messages, including prompts sent to personas and responses received from them.</li>
+            <li><strong>Game History:</strong> All challenge attempts, challenge sessions, scores, durations, and outcomes.</li>
+            <li><strong>Moderation Reports:</strong> Any safety feedback, moderation flags, or reports associated with your account's chats.</li>
+        </ul>
+        
+        <h3 style="color: var(--accent);">Data That is Kept:</h3>
+        <ul>
+            <li>None. We do not retain any of your personal identifiers, chat history, or strategy records after deletion.</li>
+        </ul>
+
+        <h3 style="color: #fff;">Retention Period:</h3>
+        <p>All data is purged <strong>instantly</strong> when triggered inside the app. For manual email requests, data is permanently purged within 72 hours of verification.</p>
+    </div>
+
+    <div class="footer">
+        <p>© 2026 Ripple. Developer: Utsav Pandya. All rights reserved.</p>
+        <p style="margin-top: 8px; font-size: 12px;"><a href="/privacy">View Privacy Policy</a></p>
+    </div>
+</div>
+</body>
+</html>

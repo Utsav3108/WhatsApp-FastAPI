@@ -125,6 +125,26 @@ class TestProfileDeletion(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(challenge_db)
         self.assertIsNone(challenge_db.selected_persona_id)
 
+    async def test_static_html_routes(self):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        client = TestClient(app)
+        
+        # Test /privacy
+        res_privacy = client.get("/privacy")
+        self.assertEqual(res_privacy.status_code, 200)
+        self.assertIn("Privacy Policy", res_privacy.text)
+
+        # Test /privacy-policy
+        res_policy = client.get("/privacy-policy")
+        self.assertEqual(res_policy.status_code, 200)
+        self.assertIn("Privacy Policy", res_policy.text)
+
+        # Test /delete-account
+        res_delete = client.get("/delete-account")
+        self.assertEqual(res_delete.status_code, 200)
+        self.assertIn("Utsav Pandya", res_delete.text)
+
     def assertNullOrNone(self, val):
         self.assertTrue(val is None)
 

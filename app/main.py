@@ -82,3 +82,8 @@ from fastapi.responses import HTMLResponse
 async def read_privacy():
     with open("privacy.html", "r") as f:
         return f.read()
+
+@app.get("/delete-account", response_class=HTMLResponse)
+async def read_delete_account():
+    with open("delete_account.html", "r") as f:
+        return f.read()

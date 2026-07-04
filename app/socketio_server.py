@@ -49,9 +49,25 @@ def connect(sid, environ):
 
 
 @sio.event
-def disconnect(sid):
-  # print(f"Socket.IO: {sid} disconnected")
-  pass
+async def disconnect(sid):
+    print(f"Socket.IO: disconnect called for sid {sid}")
+    session = await sio.get_session(sid)
+    if session:
+        user_id = session.get("user_id")
+        print(f"Socket.IO: disconnect session user_id found: {user_id}")
+        if user_id:
+            from app.gemini import clear_user_active_chats
+            clear_user_active_chats(user_id)
+
+@sio.event
+async def leave_chat(sid, data):
+    print(f"Socket.IO: leave_chat received with data: {data}")
+    user_id = data.get("user_id")
+    persona_id = data.get("persona_id")
+    challenge_session_id = data.get("challenge_session_id")
+    if user_id:
+        from app.gemini import clear_active_chat
+        clear_active_chat(user_id, persona_id=persona_id, challenge_session_id=challenge_session_id)
 
 @sio.event
 async def join(sid, data):

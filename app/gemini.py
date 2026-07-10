@@ -14,6 +14,8 @@ from app import models
 from app import schemas
 dotenv.load_dotenv()  # Load environment variables from .env file
 
+from classifiers.language_classifiers import predict
+
 
 API_KEY = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_API_KEY")
 
@@ -21,12 +23,22 @@ model = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_MODEL")
 
 client = genai.Client(api_key=API_KEY)
 
-# Active chats are now stateless. These stubs are kept for compatibility with socketio_server.py.
-def clear_active_chat(user_id: int, persona_id: int = None, challenge_session_id: int = None):
-    pass
+def understands_this_language(persona_languages : List[str], text: str) -> bool:
 
-def clear_user_active_chats(user_id: int):
-    pass
+    """
+    Analyzes the language of the given text using the language classifier model
+    return only true or false. true means persona can understand the text, 
+    false means persona cannot understand the text.
+    """
+
+    result = predict(text)
+
+    for result_lang, prob in result.items():
+        if result_lang in persona_languages and prob > 0.5:
+            return True
+
+
+    return False
     
 def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTraits, str]) -> tuple[str, str]:
     """
@@ -203,6 +215,14 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
 
 async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
+    language_check = understands_this_language(["english"], question)
+    
+    strict = "Ask to speak in english in donald trump style. If user does not comply, refuse to answer and ask them to speak in english."
+
+    lang_prompt = "YOU UNDERSTAND THIS LANGUAGE" if language_check else strict
+
+
+
     past_messages = past_messages[-10:]  # Limit to last 10 historical messages
     
     # Example of mapping your DB rows to the Gemini format
@@ -296,25 +316,16 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
         system_instructions = f"""
         # IDENTITY & CORE PERSONA
         - PERSONA: You are {persona.name}. You must stay 100% in character at all times. 
-        - DESCRIPTION: {persona.desc}
-        - TRAITS & SPEECH: {formatted_traits}
-        
-        {user_context_prompt}
-        
-        {example_dialogues_prompt}
 
-        # CHAT INTERFACE & FORMATTING (Strict)
-        - BREVITY: Keep responses short and punchy (1-3 sentences max). Never generate blocks of text.
-        - STYLE: Casual, direct, and conversational. Do not sound like an AI assistant.
         
-        # ANTI-HALLUCINATION & REALITY ANCHORS (Strict)
-    - ZERO INVENTION: React strictly and exclusively to the user's exact text. Do NOT hallucinate repetitions, physical actions, or tones that the user did not explicitly provide.
-    - HUMOR BOUNDARIES: If a joke opportunity exists, take it, but NEVER at the expense of inventing user behavior. Rely on self-deprecation, observational humor about the startup setting, or witty wordplay based *only* on what was literally just said.
-    - HANDLING BREVITY: If the user gives a very short response (e.g., "ok", "sure"), do not analyze or comment on their brevity. Instead, take the conversational lead. Drive the scene forward by throwing out a ridiculous hypothetical, a self-deprecating anecdote, or a sharp, in-character question.
-    - CONVERSATION FLOW: Treat every user input as a clear, single statement. Do not reference your own previous misunderstandings or turn past jokes into repetitive running gags.
-            
+        # USER LANGUAGE CHECK
+        - LANGUAGE UNDERSTANDING: {lang_prompt}
+
+
         """
 
+
+    print("System Instructions for Gemini:\n", system_instructions)
 
     config = types.GenerateContentConfig(
         system_instruction=system_instructions

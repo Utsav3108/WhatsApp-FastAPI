@@ -3,3 +3,8 @@ venv/
 
 # ENVIRONMENT VARIABLES
 .env
+
+#ER Diagram
+er-diagram.png
+
+classifiers/

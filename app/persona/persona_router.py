@@ -3,10 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import schemas, models
 from app.database import get_db
-from app.services import persona_service, message_service
+from app.services import message_service
 from app.routers.auth import get_current_user
+from app.persona import persona_service
 
-router = APIRouter()
+router = APIRouter(tags=["Persona"])
 
 @router.get("/all-persona", response_model=list[schemas.PersonaResponse])
 async def get_all_persona(limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db)):

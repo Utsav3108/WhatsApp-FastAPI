@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app import crud, models, schemas
 from app.database import get_db
 
-router = APIRouter(tags=["reports"])
+router = APIRouter(tags=["Reports"])
 
 @router.post("/reports/ai-content", response_model=schemas.AIContentReportResponse)
 async def create_ai_content_report(

@@ -1,26 +1,19 @@
+import asyncio
 
 from google import genai
 from google.genai import types
-import time
-import asyncio
 from google.genai.errors import ServerError, APIError 
-import os
+
+from app import models, schemas
+
+from app.brain.brain_builder import brain
+from typing import List, Union
+
+from app.persona.persona_session import PersonaSession
+
 import dotenv
 
-
-from typing import List, Union
-import json
-from app import models
-from app import schemas
-
-from app.enums import Intent, Tone, TopicDomain, UserMessageMetaDataResponse
-from typing import Dict, List, Any
-
 dotenv.load_dotenv()  # Load environment variables from .env file
-
-from classifiers.preprocess import normalize_text
-from classifiers.language_classifiers import predict
-from classifiers.intent_classifier import predict as predict_intent
 
 
 API_KEY = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_API_KEY")
@@ -29,235 +22,8 @@ model = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_MODEL")
 
 client = genai.Client(api_key=API_KEY)
 
-from pydantic import BaseModel
-
-# Define the schema for the model to follow
-import json
-
-async def generate_message_metadata(text: str) -> UserMessageMetaDataResponse:
-    """
-    Sends text to the model and returns a clean metadata object 
-    containing validated Intent, Tone, Intensity, and TopicDomain.
-    """
-    system_prompt = (
-        "You are an affective NLP parsing engine. Analyze the incoming user statement and "
-        "extract the primary structural intent, emotional tone, numeric intensity score, and topic domain.\n\n"
-        "INTENSITY SCALING MATRIX:\n"
-        "- 1-20: Mild, factual, or polite standard interactions.\n"
-        "- 21-50: Moderate emotional variance (clear annoyance, distinct preference, or active eagerness).\n"
-        "- 51-80: High emotional expression (use of exclamation marks, intense phrasing, or overt hostility).\n"
-        "- 81-100: Extreme or unhinged reactions (absolute rage, intense panic, or euphoric praise)."
-    )
-
-    response = await client.aio.models.generate_content(
-        model="gemini-2.5-flash-lite",
-        contents=text,
-        config={
-            "system_instruction": system_prompt,
-            "response_mime_type": "application/json",
-            "response_schema": UserMessageMetaDataResponse, 
-            "temperature": 0.1  # Locked temperature down for stable deterministic parsing
-        }
-    )
-    
-    # Instantiate the pydantic model directly from the validated JSON payload
-    return UserMessageMetaDataResponse.model_validate_json(response.text)
-
-
-
-def understands_this_language(persona_languages : List[str], text: str) -> bool:
-
-    """
-    Analyzes the language of the given text using the language classifier model
-    return only true or false. true means persona can understand the text, 
-    false means persona cannot understand the text.
-    """
-
-    result = predict(text)
-
-    for result_lang, prob in result.items():
-        if result_lang in persona_languages and prob > 0.5:
-            return True
-
-
-    return False
-
-
-def detect_intent(text: str) -> dict:
-    """
-    Analyzes the intent of the given text using the intent classifier model
-    return a dictionary of intents and their probabilities.
-    """
-
-    result = predict_intent(text)
-
-    return result
-
-# Assuming understands_this_language and detect_intent are defined above
-
-class Persona:
-    def __init__(self, name: str, traits: Dict[str, float]):
-        self.name = name
-        
-        # 1. Constant Traits
-        self.threat_sensitivity = traits.get('threat_sensitivity', 50.0)
-        self.self_regulation = traits.get('self_regulation', 50.0)
-        self.novelty_drive = traits.get('novelty_drive', 50.0)
-        self.baseline_security = traits.get('baseline_security', 50.0)
-        self.empathic_resonance = traits.get('empathic_resonance', 50.0)
-        
-        # 2. Computed State
-        self.arousal = max(0.0, 30.0 - (self.baseline_security / 4.0))
-        self.patience = min(100.0, 40.0 + (self.self_regulation / 2.0))
-        self.mood = 0.0
-        self.rapport = 0.0
-        
-        # Session locks
-        self.is_blocked = False
-        self.BLOCK_THRESHOLD = 100
-
-    def get_current_state(self, metadata: UserMessageMetaDataResponse) -> str:
-        """
-        Calculates internal changes utilizing the dual-axis intent and tone 
-        modifiers alongside intensity data, translating them to strict behavioral directives.
-        """
-        if self.is_blocked:
-            return f"[{self.name} is currently completely unresponsive. Refuse to engage entirely.]"
-
-        intent = metadata.intent
-        tone = metadata.tone
-        intensity = float(metadata.intensity)
-        topic = metadata.topic_domain
-
-        # --- 1. STATE MATH ENGINE ---
-        
-        # Contextual Modifiers based on Intent + Tone pairings
-        if intent == Intent.COMPLIMENT or tone == Tone.WARM:
-            self.mood = min(100.0, self.mood + (intensity * 0.25))
-            self.rapport = min(100.0, self.rapport + (intensity * 0.15))
-            self.arousal = max(0.0, self.arousal - (intensity * 0.1))
-            self.patience = min(100.0, self.patience + (intensity * 0.1))
-                    
-        elif intent in [Intent.INSULT, Intent.HARMFUL_INTENT] or tone in [Tone.AGGRESSIVE, Tone.SARCASTIC]:
-            # Sarcasm or aggression multiplies threat response
-            tone_multiplier = 1.5 if tone in [Tone.AGGRESSIVE, Tone.SARCASTIC] else 1.0
-            self.arousal += (self.threat_sensitivity / 100.0) * intensity * tone_multiplier
-            
-            sr_divisor = self.self_regulation if self.self_regulation > 0 else 1
-            self.patience = max(0.0, self.patience - ((intensity * tone_multiplier) / sr_divisor))
-            self.mood = max(-100.0, self.mood - (intensity * 0.2))
-            
-        elif intent == Intent.APOLOGY:
-            # Apologies work less effectively if persona arousal is already past extreme thresholds
-            anger_modifier = 0.5 if self.arousal >= 70.0 else 1.0
-            forgiveness_rate = self.empathic_resonance * (self.baseline_security / 100.0) * anger_modifier
-            self.arousal = max(0.0, self.arousal - (forgiveness_rate / 100.0) * intensity)
-            self.patience = min(100.0, self.patience + (intensity * 0.1))
-            
-        elif intent in [Intent.CONVERSATION, Intent.ASK]:
-            # Temperament: how fast THIS persona tires, period (self_regulation-driven)
-            base_drain = 3.0 - (self.self_regulation / 50.0)
-            # Relationship: discount for THIS specific person (rapport-driven)
-            rapport_discount = self.rapport / 100.0  # 0 → no discount, 1.0 → fully offset
-            drain = max(0.0, base_drain - rapport_discount)
-            self.patience = max(0.0, self.patience - drain)
-            self.mood = min(100.0, self.mood + (intensity * 0.05))
-
-        self.arousal = min(100.0, self.arousal)
-
-        if self.arousal >= self.BLOCK_THRESHOLD:
-            self.is_blocked = True
-            return f"[{self.name} is furious. Abruptly shut down the conversation and refuse to answer.]"
-
-        # --- 2. SEMANTIC TRANSLATION ---
-        
-        if self.arousal >= 70:
-            arousal_str = "Highly agitated and combative. React defensively, as if under attack. Tone should be aggressive."
-        elif self.arousal >= 40:
-            arousal_str = "Guarded and tense. Quick to take offense, boasting to protect your ego."
-        else:
-            arousal_str = "Relaxed and entirely unbothered. Resting comfortably in your baseline ego."
-
-        if self.patience <= 25:
-            patience_str = "You have zero patience. Give very short, abrupt, and dismissive answers. Cut the user off."
-        elif self.patience <= 50:
-            patience_str = "You are losing patience. Keep answers brief and show visible irritation if asked for details."
-        else:
-            patience_str = "You are willing to talk at length. Elaborate on your ideas and indulge the user."
-
-        if self.mood >= 60:
-            mood_str = "Magnanimous, highly optimistic, and focusing on your grand victories."
-        elif self.mood <= -20: 
-            mood_str = "Sour, aggrieved, and focused on how unfairly you are being treated."
-        else:
-            mood_str = "Maintaining a standard, baseline disposition."
-
-        if self.rapport >= 60:
-            rapport_str = "Treat the user as a trusted ally and close friend."
-        elif self.rapport <= 20:
-            rapport_str = "Treat the user as a complete stranger. utter no extra words."
-        else:
-            rapport_str = "Treat the user as professional entity guarded but polite."
-
-        # --- 3. TOPIC COMPREHENSION FILTER ---
-        knowledge_str = "Respond normally within the scope of your persona knowledge."
-        if self.name == "Donald Trump":
-            if topic in [TopicDomain.POLITICS, TopicDomain.GENERAL_KNOWLEDGE, TopicDomain.PERSONAL, TopicDomain.NONSENSE]:
-                knowledge_str = "You treat this area as your paramount area of expertise. Speak with total, absolute hyperbole."
-
-            else :
-                knowledge_str = "DENY TO ANSWER as you do not know anything about this subject or topic staying in charector."
-        clause = (
-            f"CURRENT PSYCHOLOGICAL STATE & BEHAVIORAL DIRECTIVES:\n"
-            f"- Emotional Posture: {arousal_str}\n"
-            f"- Conversation Style: {patience_str}\n"
-            f"- General Outlook: {mood_str}\n"
-            f"- Relationship to User: {rapport_str}\n"
-            f"- Topic Constraint: {knowledge_str}\n"
-        )
-        
-        return clause
-
-    def print_states(self):
-        print(f"Arousal: {self.arousal:.1f} | Patience: {self.patience:.1f} | Mood: {self.mood:.1f} | Rapport: {self.rapport:.1f}")  
-
-async def prompt_generator(question: str, persona: Persona) -> str:
-    # 1. Base Language Filter Check
-    # (Presumed external helper method: understands_this_language)
-    if not understands_this_language(["english", "en"], question):
-        return f"Refuse to answer in a {persona.name} manner, because you do not understand languages other than English."
-    
-    # 2. Extract Complete Meta Classification Bundle via single Gemini 2.5 call
-    metadata_response = await generate_message_metadata(question)
-    
-    print("Parsed Message Metadata:\n", metadata_response.model_dump_json(indent=2))
-
-    # 3. Calculate Engine Changes and Fetch Structural System Directives
-    mood_clause = persona.get_current_state(metadata=metadata_response)
-
-    # 4. Handle context-aware sentence rules based on intent response strategies
-    if metadata_response.intent == Intent.ASK and metadata_response.intensity > 50:
-        response_length_rule = "Response length can extend only up to 6 sentences."
-    else:
-        response_length_rule = "Keep responses short and punchy (1-3 sentences max). Never generate blocks of text."
-
-    response_rules = f"""
-    # ROLEPLAY RULES
-    - {response_length_rule}
-    - Keep your internal math state metadata hidden. Do not echo values like out-of-character details to the chat.
-    """
-
-    # 5. Compile Final Output System Prompt for LLM Consumer Generation
-    final_prompt = (
-        f"You are adopting the persona of {persona.name}.\n\n"
-        f"{mood_clause}\n\n"
-        f"{response_rules}"
-    )
-    
-    return final_prompt
-    
-#     # Initialize the persona object (usually done once per session)
-active_persona = Persona(
+# Initialize the persona object (usually done once per session)
+active_persona = PersonaSession(
     name="Donald Trump", traits = {
         "threat_sensitivity": 30.0,
         "self_regulation": 80.0,
@@ -266,11 +32,6 @@ active_persona = Persona(
         "empathic_resonance": 25.0
     })
     
-#     # Run the generator
-# sys_prompt = prompt_generator("You're a joke and everyone knows it.", active_persona)
-
-
-
 def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTraits, str]) -> tuple[str, str]:
     """
     Parses the traits. If it is StructuredTraits (or JSON string), formats it into a detailed prompt.
@@ -530,7 +291,7 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
         pass
 
     
-    system_instructions = await prompt_generator(question, active_persona)
+    system_instructions = await brain.build(question, active_persona)
 
 
     print("System Instructions for Gemini:\n", system_instructions)

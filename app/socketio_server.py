@@ -16,12 +16,13 @@ import app.crud as crud
 import app.cache as cache
 from app.gemini import ask_gemini, evaluate_challenge
 from app.database import SessionLocal
-from app.services import challenge_service, challenge_session, persona_service
+from app.services import challenge_service, challenge_session
 from app.schemas import ChallengeCompletion
 
 from app.enums import ChallengeResult
 
-from app.services import message_service, challenge_session as challenge_session_service
+from app.services import message_service
+from app.persona import persona_service
 
 
 # Socket.IO server setup with optional Redis support

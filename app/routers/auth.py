@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import schemas, crud, models
 from app.database import get_db
 
-router = APIRouter()
+router = APIRouter(tags=["Auth"])
 security = HTTPBearer()
 
 async def verify_google_token(id_token: str) -> dict:

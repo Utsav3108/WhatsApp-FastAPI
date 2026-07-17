@@ -8,7 +8,7 @@ from app.services import challenge_service
 from app.services.challenge_session import setup_challenge_session
 from app.routers.auth import get_current_user
 
-router = APIRouter()
+router = APIRouter(tags=["Challenges"])
 
 @router.get("/challenges", response_model=list[schemas.ChallengeResponse])
 async def get_all_challenges(

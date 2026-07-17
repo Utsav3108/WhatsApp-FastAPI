@@ -7,7 +7,7 @@ from app.database import get_db
 from app.routers.auth import get_current_user
 from app import models
 
-router = APIRouter(tags=["conversations"])
+router = APIRouter(tags=["Conversations"])
 
 
 @router.get("/conversations", response_model=schemas.PaginatedMessagesResponse)

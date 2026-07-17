@@ -6,10 +6,8 @@ from app import models
 from app.database import engine
 
 
-
-import json
 from app.routers.auth import router as auth_router, get_current_user
-from app.routers.persona import router as persona_router
+from app.persona.persona_router import router as persona_router
 from app.routers.challenge import router as challenge_router
 from app.routers.category import router as category_router
 from app.routers.conversations import router as conversations_router
@@ -33,6 +31,8 @@ async def init_models():
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
 
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ------------------------------------------------------------
@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI):
 
     # Ensure models are created asynchronously
     await init_models()
+
 
     yield
 

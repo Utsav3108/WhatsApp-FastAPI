@@ -9,7 +9,7 @@ from app import models, schemas
 from app.brain.brain_builder import brain
 from typing import List, Union
 
-from app.persona.persona_session import PersonaSession
+from app.persona.persona_session import active_persona
 
 import dotenv
 
@@ -22,15 +22,30 @@ model = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_MODEL")
 
 client = genai.Client(api_key=API_KEY)
 
-# Initialize the persona object (usually done once per session)
-active_persona = PersonaSession(
-    name="Donald Trump", traits = {
-        "threat_sensitivity": 30.0,
-        "self_regulation": 80.0,
-        "novelty_drive": 55.0,
-        "baseline_security": 80.0,
-        "empathic_resonance": 25.0
-    })
+async def summaries(contents) -> str:
+
+    
+    print("summary contents: ", contents)
+
+    config = types.GenerateContentConfig(
+        system_instruction="Summaries the conversation for analyses. Remember to keep the main essence of it to be clear.",
+        temperature=0.1
+        )
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config
+        )
+
+        return response.text
+
+    except Exception as e:
+        print(f"Error generating summary from Gemini: {e}")
+
+
+    pass
     
 def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTraits, str]) -> tuple[str, str]:
     """
@@ -329,6 +344,8 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
     }]
 
     # print("contents: ", contents)
+
+    # active_persona.summary = await summaries(formatted_history)
 
     try:
         response = await client.aio.models.generate_content(

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy import select
 from app.database import Base
 from app.models import Persona, Challenge, ChallengeSession, ChallengeAttempt, Message, AIContentReport
-from app.routers.persona import delete_user_profile
+from app.persona.persona_router import delete_user_profile
 
 class TestProfileDeletion(unittest.IsolatedAsyncioTestCase):
 

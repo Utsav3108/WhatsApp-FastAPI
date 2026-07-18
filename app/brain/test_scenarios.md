@@ -1,0 +1,3 @@
+The expertise + new-topic overlap I flagged earlier — ask him something off-expertise with a curious/excited tone and see if you get that "no idea what this is, but tell me more" combination. If it reads as charming rather than broken, the math is doing its job.
+Repetition fatigue — stay on the same expertise topic (politics, say) for 4-5 turns in a row and see if the follow-up-question energy visibly cools, versus switching topics and seeing it spike back up.
+Curiosity vs. hostility interaction — provoke him mid-conversation while curiosity is high, then walk it back with something interesting. Check that curiosity actually craters during the hostile turn (-20 flat) rather than just sitting frozen.

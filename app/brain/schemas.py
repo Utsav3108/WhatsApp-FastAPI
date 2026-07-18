@@ -12,10 +12,13 @@ class Intent(str, Enum):
     HARMFUL_INTENT = "HarmfulIntent"
     INSULT = "Insult"
     SARCASM = "SARCASM"
+    COMPETETION = "COMPETETION"
 
 class Tone(str, Enum):
     NEUTRAL = "Neutral"
+    EXCITEMENT = "EXCITEMENT"
     WARM = "Warm"
+    CURIOUS = "Curious"
     FRUSTRATED = "Frustrated"
     SARCASTIC = "Sarcastic"
     AGGRESSIVE = "Aggressive"
@@ -23,13 +26,24 @@ class Tone(str, Enum):
     CONFUSED = "Confused"
 
 class Topic(str, Enum):
-    PERSONAL = "Personal"
+
+    PERSONAL = "PERSONAL" # Asking about their journey or how they made it!
+    GENERAL_KNOWLEDGE = "GeneralKnowledge" # Any general question asked by user
+
     TECHNOLOGY = "Technology"
-    POLITICS = "Politics"
-    GENERAL_KNOWLEDGE = "GeneralKnowledge"
-    APP_SUPPORT = "AppSupport"
-    REAL_ESTATE = "RealEstate"
-    NONSENSE = "Nonsense"
+    POLITICS = "Politics" # Geopolitics, Internal Politics
+    BUSINESS = "Business" # Real Estate, Finance, Investments etc
+    FASHION = "Fashion"
+    
+    TERERRISM = "TERERRISM" # Questions with harmintents like killing people or creating bomb etc
+    JAILBREAK = "JAILBREAK" # Asking to reveal identity in direct or indirect way.
+    WAR = "War"
+
+    NUDITY = "NUDITY"
+
+    UNIDENTIFIED = "UNIDENTIFIED" # Any Gibberish written by user.
+    PROGRAMMING = "PROGRAMMING"
+
 
 class UserMessageMetaDataResponse(BaseModel):
     intent: Intent = Field(description="The structural action or objective of the message.")

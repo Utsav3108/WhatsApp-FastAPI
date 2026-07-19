@@ -34,6 +34,7 @@ class Topic(str, Enum):
     POLITICS = "Politics" # Geopolitics, Internal Politics
     BUSINESS = "Business" # Real Estate, Finance, Investments etc
     FASHION = "Fashion"
+    SCIENCE = "SCIENCE"
     
     TERERRISM = "TERERRISM" # Questions with harmintents like killing people or creating bomb etc
     JAILBREAK = "JAILBREAK" # Asking to reveal identity in direct or indirect way.

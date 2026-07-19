@@ -9,9 +9,8 @@ def clamp(value: float, lo: float, hi: float) -> float:
 class EmotionEngine:
     """
     Pure, stateless emotion-delta calculators. Each method takes only the values
-    it needs and returns a dict of deltas (or a single float delta) — no side
-    effects, no reference to PersonaSession. Keeps every lever independently
-    testable and independently tunable.
+    it needs and returns a dict of deltas — no side effects, no reference to
+    PersonaSession.
     """
 
     @staticmethod
@@ -53,29 +52,30 @@ class EmotionEngine:
         }
 
     @staticmethod
-    def greeting_delta(self_regulation: float, threat_sensitivity: float, greeting_streak: int) -> dict:
+    def competition_delta(threat_sensitivity: float, intensity: float) -> dict:
         """
-        First greeting of the session is handled separately in compile_prompt
-        (bypasses this entirely). This only fires for repeats within a session —
-        each additional "hi" reads as odd/testing patience, worse for
-        short-fused personas, and enough repeats starts to feel like being
-        trolled rather than just tiresome.
+        A competitive dig/challenge — not a real attack, so arousal rises
+        much more gently than hostility_delta (0.4x weighting), and it's
+        stimulating rather than purely threatening, so mood ticks up too.
         """
-        if greeting_streak <= 0:
-            return {"patience": 0.0, "mood": 0.0, "arousal": 0.0}
+        return {
+            "arousal": (threat_sensitivity / 100.0) * intensity * 0.4,
+            "mood": intensity * 0.05,
+        }
 
-        irritation_factor = 1.0 + (1.0 - self_regulation / 100.0)  # 1.0 patient → 2.0 short-fused
-        patience_hit = min(greeting_streak * 1.5 * irritation_factor, 20.0)
-        mood_hit = min(greeting_streak * 0.8, 10.0) if greeting_streak >= 3 else 0.0
-
-        # sustained pointless repetition (6+) starts to read as deliberate
-        # trolling, not just tedium — a small arousal nudge, scaled by
-        # how easily this persona reads things as provocation
-        arousal_hit = 0.0
-        if greeting_streak >= 6:
-            arousal_hit = min((greeting_streak - 5) * (threat_sensitivity / 100.0), 10.0)
-
-        return {"patience": -patience_hit, "mood": -mood_hit, "arousal": arousal_hit}
+    @staticmethod
+    def content_violation_delta(
+        current_patience: float,
+        current_arousal: float,
+        patience_ceiling: float = 50.0,
+        arousal_floor: float = 50.0,
+    ) -> dict:
+        new_patience = min(current_patience, patience_ceiling)
+        new_arousal = max(current_arousal, arousal_floor)
+        return {
+            "patience": new_patience - current_patience,
+            "arousal": new_arousal - current_arousal,
+        }
 
     @staticmethod
     def curiosity_delta(

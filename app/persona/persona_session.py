@@ -7,10 +7,10 @@ from app.brain.brain_component import BrainComponent
 
 
 class PersonaSession(BrainComponent):
-    def __init__(self, name: str, traits: Dict[str, float], expertise_topics: Optional[List[Topic]] = None):
+    def __init__(self, name: str, traits: Dict[str, float], expertise_topics: Optional[List[Topic]] = None,
+                 violation_block_threshold: int = 2):
 
         self.summary = ""
-
         self.persona = name
 
         self.threat_sensitivity = traits.get('threat_sensitivity', 50.0)
@@ -29,11 +29,14 @@ class PersonaSession(BrainComponent):
 
         self.last_topic: Optional[Topic] = None
         self.topic_repeat_streak = 0
-        self.greeting_streak = 0
         self.turn_count = 0
-        self.is_first_turn = True  # read by compile_prompt before turn_count increments
+        self.is_first_turn = True
+
+        self.violation_count = 0
+        self.VIOLATION_BLOCK_THRESHOLD = violation_block_threshold
 
         self.is_blocked = False
+        self.block_reason: Optional[str] = None
         self.BLOCK_THRESHOLD = 100
 
     def _apply(self, deltas: dict):
@@ -46,6 +49,20 @@ class PersonaSession(BrainComponent):
         if "rapport" in deltas:
             self.rapport = clamp(self.rapport + deltas["rapport"], 0.0, 100.0)
 
+    def register_violation(self, topic: Topic):
+        deltas = EmotionEngine.content_violation_delta(self.patience, self.arousal)
+        self._apply(deltas)
+
+        self.violation_count += 1
+        self.last_topic = topic
+        self.topic_repeat_streak = 0
+        self.turn_count += 1
+        self.is_first_turn = False
+
+        if self.violation_count >= self.VIOLATION_BLOCK_THRESHOLD:
+            self.is_blocked = True
+            self.block_reason = "repeated_content_violations"
+
     def update(self, context: BrainContext):
         intent = context.metadata.intent
         tone = context.metadata.tone
@@ -53,10 +70,17 @@ class PersonaSession(BrainComponent):
         topic = context.metadata.topic_domain
 
         self.is_first_turn = (self.turn_count == 0)
-        is_hostile_turn = intent in [Intent.INSULT, Intent.HARMFUL_INTENT] and tone in [Tone.AGGRESSIVE]
+
+        # Restored `or` — with Tone.EXCITEMENT now available, AGGRESSIVE no
+        # longer doubles as "loud and enthusiastic," so it's safe to treat
+        # any AGGRESSIVE/SARCASTIC tone as genuinely hostile again.
+        is_hostile_turn = (
+            intent in [Intent.INSULT, Intent.HARMFUL_INTENT, Intent.SARCASM]
+            or tone in [Tone.AGGRESSIVE, Tone.SARCASTIC]
+        )
 
         # --- 1. STATE MATH ENGINE ---
-        if intent == Intent.COMPLIMENT or tone == Tone.WARM:
+        if intent == Intent.COMPLIMENT or tone in [Tone.WARM, Tone.EXCITEMENT]:
             self._apply(EmotionEngine.compliment_delta(intensity))
 
         elif is_hostile_turn:
@@ -65,17 +89,14 @@ class PersonaSession(BrainComponent):
         elif intent == Intent.APOLOGY:
             self._apply(EmotionEngine.apology_delta(self.empathic_resonance, self.baseline_security, self.arousal, intensity))
 
-        elif intent == Intent.GREETING:
-            # first-ever greeting of the session is free — handled in compile_prompt
-            if not self.is_first_turn:
-                self._apply(EmotionEngine.greeting_delta(self.self_regulation, self.threat_sensitivity, self.greeting_streak))
+        elif intent == Intent.COMPETETION:
+            self._apply(EmotionEngine.competition_delta(self.threat_sensitivity, intensity))
 
         elif intent in [Intent.CONVERSATION, Intent.ASK]:
             self._apply(EmotionEngine.conversation_drain(self.self_regulation, self.rapport, intensity))
 
-        # GOODBYE: intentional no-op.
-
-        self.greeting_streak = self.greeting_streak + 1 if intent == Intent.GREETING else 0
+        # GREETING / GOODBYE: intentional no-op. Repetition callouts are
+        # handled entirely by response rules downstream, not persona state.
 
         # --- 2. NOVELTY / CURIOSITY ENGINE ---
         is_new_topic = topic != self.last_topic
@@ -102,13 +123,12 @@ class PersonaSession(BrainComponent):
 
         if self.arousal >= self.BLOCK_THRESHOLD:
             self.is_blocked = True
+            self.block_reason = "arousal_threshold"
             return f"[{self.persona} is furious. Abruptly shut down the conversation and refuse to answer.]"
 
         intent = context.metadata.intent
         topic = context.metadata.topic_domain
 
-        # Literal first message of the session, and it's a greeting: skip the
-        # whole personality stack, just say hello back in kind.
         if intent == Intent.GREETING and self.is_first_turn:
             return (
                 "CURRENT PSYCHOLOGICAL STATE & BEHAVIORAL DIRECTIVES:\n"
@@ -150,15 +170,14 @@ class PersonaSession(BrainComponent):
         else:
             curiosity_str = "Not particularly curious right now. Answer without asking anything back."
 
-        # Repeated greetings now correctly fall through to here, so an annoyed
-        # "hi" #7 gets read through drained patience/mood, not a fresh hello.
-        if intent == Intent.GREETING and self.greeting_streak >= 3:
-            curiosity_str += " The user keeps repeating greetings — visibly acknowledge that this is odd or repetitive rather than just saying hello again."
-
         knowledge_str = ""
         if intent not in [Intent.GREETING, Intent.GOODBYE] and topic not in self.expertise_topics:
-            knowledge_str = "partial or no knowledge of what user is saying."
-
+            knowledge_str = "no knowledge of what user is saying."
+        elif topic == Topic.GENERAL_KNOWLEDGE:
+            knowledge_str = "only a general knowledge, no deep or scientific insights to share."
+        elif topic in self.expertise_topics:
+            knowledge_str = "you are an expert in this field."
+        
         clause = (
             f"CURRENT PSYCHOLOGICAL STATE & BEHAVIORAL DIRECTIVES:\n"
             f"- Emotional Posture: {arousal_str}\n"
@@ -174,7 +193,9 @@ class PersonaSession(BrainComponent):
         return clause
 
     def print_states(self):
-        print(f"Arousal: {self.arousal:.1f} | Patience: {self.patience:.1f} | Mood: {self.mood:.1f} | Rapport: {self.rapport:.1f} | Curiosity: {self.curiosity:.1f} | GreetStreak: {self.greeting_streak}")
+        print(f"Arousal: {self.arousal:.1f} | Patience: {self.patience:.1f} | Mood: {self.mood:.1f} | "
+              f"Rapport: {self.rapport:.1f} | Curiosity: {self.curiosity:.1f} | Violations: {self.violation_count}")
+
 
 active_persona = PersonaSession(
     name="Donald Trump",

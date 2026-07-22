@@ -12,7 +12,7 @@ class Brain:
         self.harmful_topics = [Topic.TERERRISM, Topic.JAILBREAK]
         self.sexual_topics = [Topic.NUDITY]
 
-    async def build(self, question: str, persona_session: PersonaSession) -> str:
+    async def build(self, question: str, persona_session: PersonaSession, past_conversation) -> str:
         # 0. Hard gate — already blocked (arousal OR repeated violations).
         # Skip the model call entirely; nothing downstream matters.
         if persona_session.is_blocked:
@@ -21,8 +21,9 @@ class Brain:
 
         # 1. Analyze the incoming message
         metadata = await MessageAnalysis.analyze(
-            previous_message_summary=persona_session.summary,
+            previous_messages=past_conversation,
             text=question,
+            expertise_topics=persona_session.expertise_topics
         )
 
         print("Parsed Message Metadata:\n", metadata.model_dump_json(indent=2))

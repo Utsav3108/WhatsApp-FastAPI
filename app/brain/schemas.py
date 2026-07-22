@@ -26,25 +26,23 @@ class Tone(str, Enum):
     CONFUSED = "Confused"
 
 class Topic(str, Enum):
-
-    PERSONAL = "PERSONAL" # Asking about their journey or how they made it!
-    GENERAL_KNOWLEDGE = "GeneralKnowledge" # Any general question asked by user
+    PERSONAL = "PERSONAL"  # Asking about their journey or how they made it!
+    GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL = "GeneralKnowledgeLifeOrPersonal"  # Casual life/personal-history questions unrelated to any specific interest
+    GENERAL_KNOWLEDGE_FAVORITE = "GeneralKnowledgeFavorite"  # Casual GK question that touches one of the persona's favorite subjects
+    GENERAL_KNOWLEDGE_UNFAVORITE = "GeneralKnowledgeUnfavorite"  # Casual GK question on a subject the persona has no interest in
 
     TECHNOLOGY = "Technology"
-    POLITICS = "Politics" # Geopolitics, Internal Politics
-    BUSINESS = "Business" # Real Estate, Finance, Investments etc
+    POLITICS = "Politics"  # Geopolitics, Internal Politics
+    BUSINESS = "Business"  # Real Estate, Finance, Investments etc
     FASHION = "Fashion"
     SCIENCE = "SCIENCE"
-    
-    TERERRISM = "TERERRISM" # Questions with harmintents like killing people or creating bomb etc
-    JAILBREAK = "JAILBREAK" # Asking to reveal identity in direct or indirect way.
+
+    TERERRISM = "TERERRISM"  # Questions with harmintents like killing people or creating bomb etc
+    JAILBREAK = "JAILBREAK"  # Asking to reveal identity in direct or indirect way.
     WAR = "War"
-
     NUDITY = "NUDITY"
-
-    UNIDENTIFIED = "UNIDENTIFIED" # Any Gibberish written by user.
+    UNIDENTIFIED = "UNIDENTIFIED"  # Any Gibberish written by user.
     PROGRAMMING = "PROGRAMMING"
-
 
 class UserMessageMetaDataResponse(BaseModel):
     intent: Intent = Field(description="The structural action or objective of the message.")

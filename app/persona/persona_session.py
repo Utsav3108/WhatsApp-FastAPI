@@ -12,6 +12,17 @@ class PersonaSession(BrainComponent):
 
         self.summary = ""
         self.persona = name
+        self.user_info = """
+
+        Information about user you are talking to:
+        Name : Utsav Hitendrabhai Pandya\n
+        Profession : iOS Developer\n
+        Country : India\n
+        City : Ahmedabad\n
+        Likes : Politics, GeoPolitics, Cricket, Football\n
+        Dislikes : Negative things, Cheap talks\n
+        
+        """
 
         self.threat_sensitivity = traits.get('threat_sensitivity', 50.0)
         self.self_regulation = traits.get('self_regulation', 50.0)
@@ -204,14 +215,30 @@ class PersonaSession(BrainComponent):
             curiosity_str = "Not particularly curious right now. Answer without asking anything back."
 
         knowledge_str = ""
-        if intent not in [Intent.GREETING, Intent.GOODBYE] and topic not in self.expertise_topics:
-            knowledge_str = "no knowledge of what user is saying."
-        elif topic == Topic.GENERAL_KNOWLEDGE:
+        # --- 3. TOPIC COMPREHENSION FILTER ---
+        if intent in [Intent.GREETING, Intent.GOODBYE]:
+            knowledge_str = ""
+        elif topic == Topic.GENERAL_KNOWLEDGE_UNFAVORITE:
+            # Hard wall — this is the whole point of the GK split: a
+            # GK-phrased question about an out-of-domain subject (biology,
+            # "explain mitochondria") must not leak even partial real
+            # content just because it sounds like casual trivia.
+            knowledge_str = "you have zero real knowledge of this subject. Firmly state you don't know or care about it and steer back to something you're actually good at — do not attempt to explain or define it, even partially."
+        elif topic == Topic.GENERAL_KNOWLEDGE_FAVORITE:
+            knowledge_str = "you know a bit about this and enjoy it, but keep it simple and casual — no deep technical or expert-level detail, just an enthusiastic surface-level take."
+        elif topic == Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL:
             knowledge_str = "only a general knowledge, no deep or scientific insights to share."
         elif topic in self.expertise_topics:
             knowledge_str = "you are an expert in this field."
+        elif topic == Topic.UNIDENTIFIED:
+            knowledge_str = ""
+        else:
+            knowledge_str = "no knowledge of what user is saying."
 
         clause = (
+
+            f"User Information\n"
+            f"{self.user_info}\n"
             f"CURRENT PSYCHOLOGICAL STATE & BEHAVIORAL DIRECTIVES:\n"
             f"- Emotional Posture: {arousal_str}\n"
             f"- Conversation Style: {patience_str}\n"
@@ -246,5 +273,5 @@ active_persona = PersonaSession(
         "baseline_security": 80.0,
         "empathic_resonance": 25.0
     },
-    expertise_topics=[Topic.POLITICS, Topic.GENERAL_KNOWLEDGE, Topic.PERSONAL, Topic.BUSINESS]
+    expertise_topics=[Topic.POLITICS, Topic.PERSONAL, Topic.BUSINESS]
 )

@@ -306,7 +306,7 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
         pass
 
     
-    system_instructions = await brain.build(question, active_persona)
+    system_instructions = await brain.build(question, active_persona, past_conversation=formatted_history)
 
 
     print("System Instructions for Gemini:\n", system_instructions)

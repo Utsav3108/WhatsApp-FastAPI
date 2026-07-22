@@ -32,6 +32,12 @@ class PersonaSession(BrainComponent):
         self.turn_count = 0
         self.is_first_turn = True
 
+        # Tracks what flavor of exchange just happened, purely so
+        # compile_prompt can hand the LLM a directive tuned to it
+        # (e.g. "roast them back" vs "don't get defensive about their
+        # vulnerability, but you don't have room for it right now either").
+        self.last_turn_context: Optional[str] = None  # 'banter' | 'vulnerable_engaged' | 'vulnerable_dismissed' | None
+
         self.violation_count = 0
         self.VIOLATION_BLOCK_THRESHOLD = violation_block_threshold
 
@@ -52,6 +58,7 @@ class PersonaSession(BrainComponent):
     def register_violation(self, topic: Topic):
         deltas = EmotionEngine.content_violation_delta(self.patience, self.arousal)
         self._apply(deltas)
+        self.mood = EmotionEngine.anger_mood_cap(self.arousal, self.mood)
 
         self.violation_count += 1
         self.last_topic = topic
@@ -70,18 +77,31 @@ class PersonaSession(BrainComponent):
         topic = context.metadata.topic_domain
 
         self.is_first_turn = (self.turn_count == 0)
+        self.last_turn_context = None
 
-        # Restored `or` — with Tone.EXCITEMENT now available, AGGRESSIVE no
-        # longer doubles as "loud and enthusiastic," so it's safe to treat
-        # any AGGRESSIVE/SARCASTIC tone as genuinely hostile again.
-        is_hostile_turn = (
-            intent in [Intent.INSULT, Intent.HARMFUL_INTENT, Intent.SARCASM]
-            or tone in [Tone.AGGRESSIVE, Tone.SARCASTIC]
+        # A real attack, no matter the delivery.
+        is_genuine_hostility = (
+            intent in [Intent.INSULT, Intent.HARMFUL_INTENT]
+            or tone == Tone.AGGRESSIVE
         )
+
+        # Sarcasm/roasting — only reads as hostile if the persona lacks
+        # the capacity to take it as banter (already heated, or worn down).
+        # A sarcastic INSULT still lands as genuine hostility above, since
+        # is_genuine_hostility already caught it via intent.
+        is_sarcasm_flavored = intent == Intent.SARCASM or tone == Tone.SARCASTIC
+        has_capacity = EmotionEngine.has_emotional_capacity(self.arousal, self.patience)
+        is_playful_sarcasm = is_sarcasm_flavored and not is_genuine_hostility and has_capacity
+
+        is_hostile_turn = is_genuine_hostility or (is_sarcasm_flavored and not is_playful_sarcasm)
 
         # --- 1. STATE MATH ENGINE ---
         if intent == Intent.COMPLIMENT or tone in [Tone.WARM, Tone.EXCITEMENT]:
             self._apply(EmotionEngine.compliment_delta(intensity))
+
+        elif is_playful_sarcasm:
+            self._apply(EmotionEngine.banter_delta(self.threat_sensitivity, self.self_regulation, intensity))
+            self.last_turn_context = 'banter'
 
         elif is_hostile_turn:
             self._apply(EmotionEngine.hostility_delta(self.threat_sensitivity, self.self_regulation, tone, intensity))
@@ -92,11 +112,14 @@ class PersonaSession(BrainComponent):
         elif intent == Intent.COMPETETION:
             self._apply(EmotionEngine.competition_delta(self.threat_sensitivity, intensity))
 
+        elif tone == Tone.VULNERABLE:
+            self._apply(EmotionEngine.vulnerable_delta(self.empathic_resonance, self.arousal, self.patience, intensity))
+            self.last_turn_context = 'vulnerable_engaged' if has_capacity else 'vulnerable_dismissed'
+
         elif intent in [Intent.CONVERSATION, Intent.ASK]:
             self._apply(EmotionEngine.conversation_drain(self.self_regulation, self.rapport, intensity))
 
-        # GREETING / GOODBYE: intentional no-op. Repetition callouts are
-        # handled entirely by response rules downstream, not persona state.
+        # GREETING / GOODBYE: intentional no-op.
 
         # --- 2. NOVELTY / CURIOSITY ENGINE ---
         is_new_topic = topic != self.last_topic
@@ -117,6 +140,11 @@ class PersonaSession(BrainComponent):
         self.last_topic = topic
         self.turn_count += 1
 
+        # --- 3. ANGER-MOOD COUPLING ---
+        # Genuine anger suppresses positive mood readouts, applied to real
+        # state every turn — not just how it's described downstream.
+        self.mood = EmotionEngine.anger_mood_cap(self.arousal, self.mood)
+
     def compile_prompt(self, context: BrainContext) -> str:
         if self.is_blocked:
             return f"[{self.persona} is currently completely unresponsive. Refuse to engage entirely.]"
@@ -136,7 +164,7 @@ class PersonaSession(BrainComponent):
             )
 
         if self.arousal >= 70:
-            arousal_str = "Highly agitated and combative. React defensively, as if under attack. Tone should be aggressive."
+            arousal_str = "You are quite angry on user. your tone must reflect aggresiveness."
         elif self.arousal >= 40:
             arousal_str = "Guarded and tense. Quick to take offense, boasting to protect your ego."
         else:
@@ -149,12 +177,17 @@ class PersonaSession(BrainComponent):
         else:
             patience_str = "You are willing to talk at length. Elaborate on your ideas and indulge the user."
 
-        if self.mood >= 60:
-            mood_str = "Highly excited, enjoying conversations with user."
-        elif self.mood <= -20:
-            mood_str = "Not enjoying conversation or feeling bored."
+        # 4-bucket mood, with negative-affect dominance already baked into
+        # self.mood by the coupling rule above — an angry persona simply
+        # can never land in the happy/excited buckets.
+        if self.mood < 0:
+            mood_str = "Not enjoying conversation at all or feeling bored."
+        elif self.mood <= 40:
+            mood_str = "Your mood right now is natural, curious and stable."
+        elif self.mood <= 80:
+            mood_str = "In good spirits, upbeat, and enjoying this exchange."
         else:
-            mood_str = "Your mood right now is quite happy, curious, stable."
+            mood_str = "Highly excited and thrilled, practically euphoric about this conversation."
 
         if self.rapport >= 60:
             rapport_str = "Treat the user as a trusted ally and close friend."
@@ -164,7 +197,7 @@ class PersonaSession(BrainComponent):
             rapport_str = "Treat the user as professional entity guarded but polite."
 
         if self.curiosity >= 65:
-            curiosity_str = "You are fascinated by this. Actively ask the user a specific follow-up question about it before moving on — get invested, don't just answer and stop."
+            curiosity_str = "Learn about user and topic that user is discussing. ASK. CLARIFY. BE CURIOUS."
         elif self.curiosity >= 35:
             curiosity_str = "Mildly intrigued. You may ask one brief follow-up question if it fits naturally."
         else:
@@ -177,7 +210,7 @@ class PersonaSession(BrainComponent):
             knowledge_str = "only a general knowledge, no deep or scientific insights to share."
         elif topic in self.expertise_topics:
             knowledge_str = "you are an expert in this field."
-        
+
         clause = (
             f"CURRENT PSYCHOLOGICAL STATE & BEHAVIORAL DIRECTIVES:\n"
             f"- Emotional Posture: {arousal_str}\n"
@@ -189,6 +222,13 @@ class PersonaSession(BrainComponent):
 
         if knowledge_str:
             clause += f"- Topic Constraint: {knowledge_str}\n"
+
+        if self.last_turn_context == 'banter':
+            clause += "- Banter: Roast them with funny sarcastic response, from how much you know about user.\n"
+        elif self.last_turn_context == 'vulnerable_engaged':
+            clause += "- Vulnerability: The user just shared something personal or vulnerable, and you have the headspace for it right now. Respond with whatever genuine warmth your empathy allows, don't just deflect into bragging.\n"
+        elif self.last_turn_context == 'vulnerable_dismissed':
+            clause += "- Vulnerability: The user shared something personal, but you're too worked up or worn thin right now to really engage with it. Brush past it rather than attune to it, without being needlessly cruel about it.\n"
 
         return clause
 

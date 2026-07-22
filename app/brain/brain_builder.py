@@ -16,7 +16,8 @@ class Brain:
         # 0. Hard gate — already blocked (arousal OR repeated violations).
         # Skip the model call entirely; nothing downstream matters.
         if persona_session.is_blocked:
-            return f"[{persona_session.persona} refuses to engage entirely. Stay firmly in character, offer no real answer.]"
+            return f"{persona_session.persona} refuses to engage entirely."
+        
 
         # 1. Analyze the incoming message
         metadata = await MessageAnalysis.analyze(

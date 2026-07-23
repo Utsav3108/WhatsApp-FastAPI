@@ -30,7 +30,7 @@ class PersonaSession(BrainComponent):
         self.baseline_security = traits.get('baseline_security', 50.0)
         self.empathic_resonance = traits.get('empathic_resonance', 50.0)
 
-        self.expertise_topics = expertise_topics if expertise_topics is not None else [Topic.GENERAL_KNOWLEDGE]
+        self.expertise_topics = expertise_topics if expertise_topics is not None else [Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL]
 
         self.arousal = max(0.0, 30.0 - (self.baseline_security / 4.0))
         self.patience = min(100.0, 40.0 + (self.self_regulation / 2.0))

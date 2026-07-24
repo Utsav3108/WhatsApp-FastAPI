@@ -1,9 +1,24 @@
 # app/brain/emotion_engine.py
-from app.brain.schemas import Tone
+from enum import Enum
+from typing import List
+
+from app.brain.schemas import Tone, Topic
 
 
 def clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
+
+
+class CuriosityZone(str, Enum):
+    """
+    Derived internal concept (never produced by the classifier — Topic is),
+    so it lives here rather than in schemas.py alongside the classifier's
+    actual output vocabulary (Intent/Tone/Topic).
+    """
+    APATHY = "apathy"                # GK_UNFAVORITE, a real-domain topic outside expertise, or UNIDENTIFIED
+    CURIOSITY = "curiosity"          # GK_FAVORITE — partial familiarity, real info gap (peak)
+    BOREDOM = "boredom"              # topic in expertise_topics, deep/technical register — closed gap
+    ROUTED_AROUND = "routed_around"  # PERSONAL / GK_LIFE_OR_PERSONAL — rapport, not info-gap
 
 
 class EmotionEngine:
@@ -58,18 +73,19 @@ class EmotionEngine:
     def banter_delta(threat_sensitivity: float, self_regulation: float, intensity: float) -> dict:
         """
         Playful sarcasm/roasting the persona has the standing to enjoy —
-        capacity-gated in persona_session.update(). Light stimulation, not
-        a threat: a little arousal (there's an edge to good banter), a
-        little patience cost, but paired with a mood boost since a good
-        roast is fun, not a wound. If it goes on long enough to drain
-        patience below the capacity floor, this same message would start
-        reading as hostile on the next turn — banter that overstays its
-        welcome legitimately becomes annoying.
+        capacity-gated in persona_session.update(). Same rebalancing logic
+        as competition_delta: genuine roasting is not a threat signal, so
+        arousal cost is near-zero and patience (the "the joke overstayed
+        its welcome" resource) carries the primary cost, paired with a
+        mood boost since a good roast is fun, not a wound. If it goes on
+        long enough to drain patience below the capacity floor, this same
+        message would start reading as hostile on the next turn — banter
+        that overstays its welcome legitimately becomes annoying.
         """
         sr_divisor = self_regulation if self_regulation > 0 else 1
         return {
-            "arousal": (threat_sensitivity / 100.0) * intensity * 0.3,
-            "patience": -(intensity * 0.3) / sr_divisor,
+            "arousal": (threat_sensitivity / 100.0) * intensity * 0.05,
+            "patience": -(intensity * 0.35) / sr_divisor,
             "mood": intensity * 0.1,
         }
 
@@ -102,15 +118,21 @@ class EmotionEngine:
         }
 
     @staticmethod
-    def competition_delta(threat_sensitivity: float, intensity: float) -> dict:
+    def competition_delta(threat_sensitivity: float, self_regulation: float, intensity: float) -> dict:
         """
-        A competitive dig/challenge — not a real attack, so arousal rises
-        much more gently than hostility_delta (0.4x weighting), and it's
-        stimulating rather than purely threatening, so mood ticks up too.
+        A competitive dig/challenge — not a real attack. Arousal should
+        model threat detection ("am I under attack"); competitive banter
+        isn't a threat, it's effortful — parrying jabs costs energy/
+        stamina, not vigilance. That maps onto patience (a depleting
+        resource) far more naturally than arousal (a threat gauge), so
+        patience carries the primary cost here and arousal only a small
+        residual.
         """
+        sr_divisor = self_regulation if self_regulation > 0 else 1
         return {
-            "arousal": (threat_sensitivity / 100.0) * intensity * 0.4,
-            "mood": intensity * 0.05,
+            "arousal": (threat_sensitivity / 100.0) * intensity * 0.1,
+            "patience": -(intensity * 0.35) / sr_divisor,
+            "mood": intensity * 0.08,
         }
 
     @staticmethod
@@ -134,25 +156,74 @@ class EmotionEngine:
         }
 
     @staticmethod
-    def curiosity_delta(novelty_drive: float, intensity: float, in_expertise: bool, is_new_topic: bool,
-                         tone: Tone, topic_repeat_streak: int, is_hostile_turn: bool) -> float:
+    def classify_curiosity_zone(topic: Topic, expertise_topics: List[Topic]) -> "CuriosityZone":
+        """
+        Maps the classifier's existing topic label onto Information Gap
+        Theory's three curiosity zones — no new classifier dimension
+        needed, reuses the GK split. PERSONAL and
+        GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL are checked first, before
+        expertise-topic membership, so a persona that happens to have
+        PERSONAL in its expertise_topics (e.g. Trump) doesn't get misrouted
+        into Boredom — these two topics are a rapport mechanism, not an
+        information-gap mechanism, and stay outside the zone system.
+        """
+        if topic in (Topic.PERSONAL, Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL):
+            return CuriosityZone.ROUTED_AROUND
+        if topic == Topic.GENERAL_KNOWLEDGE_FAVORITE:
+            return CuriosityZone.CURIOSITY
+        if topic == Topic.GENERAL_KNOWLEDGE_UNFAVORITE:
+            return CuriosityZone.APATHY
+        if topic in expertise_topics:
+            return CuriosityZone.BOREDOM
+        return CuriosityZone.APATHY  # real-domain topic outside expertise, or UNIDENTIFIED
+
+    @staticmethod
+    def curiosity_delta(novelty_drive: float, intensity: float, zone: "CuriosityZone", is_new_topic: bool,
+                         tone: Tone, topic_repeat_streak: int, is_hostile_turn: bool,
+                         zone_base: float = 15.0,
+                         repeat_decay_floor: float = 0.3,
+                         repeat_decay_step: float = 0.15,
+                         apathy_decay: float = 5.0,
+                         boredom_decay: float = 2.0,
+                         violated_expectations_intensity: float = 70.0,
+                         violated_expectations_bonus: float = 20.0) -> float:
+        """
+        Curiosity peaks on *partial* familiarity, not total ignorance or
+        total mastery (Information Gap Theory) — starting constants below,
+        pending verification against real conversation logs same as the
+        rest of this file's formulas.
+        """
         if is_hostile_turn:
             return -20.0
 
         novelty_factor = novelty_drive / 100.0
         stimulation = 0.0
 
-        # if in_expertise and intensity >= 40:
-        #     repetition_fatigue = max(0.3, 1.0 - (topic_repeat_streak * 0.15))
-        #     stimulation += novelty_factor * (intensity * 0.3) * repetition_fatigue
+        if zone == CuriosityZone.ROUTED_AROUND:
+            # Unchanged legacy behavior: bump only on topic change.
+            if is_new_topic:
+                stimulation = novelty_factor * zone_base
 
-        if is_new_topic:
-            stimulation += novelty_factor * 15.0
+        elif zone == CuriosityZone.CURIOSITY:
+            # Sustains every turn the topic stays in this zone (not just
+            # the turn it's first raised), decaying via topic_repeat_streak
+            # — the "Routine and Habit" mechanic, reconnected here instead
+            # of the old flat in-expertise bonus it used to be wired to.
+            repetition_fatigue = max(repeat_decay_floor, 1.0 - topic_repeat_streak * repeat_decay_step)
+            stimulation = novelty_factor * zone_base * repetition_fatigue
+
+        elif zone == CuriosityZone.BOREDOM:
+            if intensity >= violated_expectations_intensity:
+                # Violated-expectations exception: the topic itself isn't
+                # novel, but this specific claim is unusually charged.
+                stimulation = novelty_factor * violated_expectations_bonus
+            else:
+                stimulation = -(boredom_decay * (1 - novelty_factor))
+
+        else:  # APATHY
+            stimulation = -(apathy_decay * (1 - novelty_factor))
 
         if tone == Tone.CURIOUS:
             stimulation *= 1.3
-
-        if stimulation == 0.0 and not is_new_topic and not in_expertise:
-            return -(5.0 * (1 - novelty_factor))
 
         return stimulation

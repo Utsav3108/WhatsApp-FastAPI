@@ -52,3 +52,15 @@ class UserMessageMetaDataResponse(BaseModel):
     )
     topic_domain: Topic = Field(description="The conceptual category or domain of the message text.")
     language : str = Field(description="The language of text.")
+
+class MessageMetadataOnly(BaseModel):
+    """Everything the affective classifier produces, minus topic — which
+    is now handled by a fully separate call in _detect_topic."""
+    intent: Intent
+    tone: Tone
+    intensity: int
+    language: str
+
+class TopicDetectionResponse(BaseModel):
+    """Standalone schema for the topic-only classification call."""
+    topic_domain: Topic

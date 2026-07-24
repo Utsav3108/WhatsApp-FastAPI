@@ -1,6 +1,6 @@
-# app/brain/persona_session.py
+# app/persona/persona_session.py
 from app.brain.schemas import Intent, Tone, Topic, UserMessageMetaDataResponse
-from app.brain.emotion_engine import EmotionEngine, clamp
+from app.brain.emotion_engine import EmotionEngine, clamp, CuriosityZone
 from typing import Dict, List, Optional
 from app.brain.context import BrainContext
 from app.brain.brain_component import BrainComponent
@@ -37,6 +37,7 @@ class PersonaSession(BrainComponent):
         self.mood = 0.0
         self.rapport = 0.0
         self.curiosity = 0.0
+        self.curiosity_zone: Optional[CuriosityZone] = None
 
         self.last_topic: Optional[Topic] = None
         self.topic_repeat_streak = 0
@@ -90,25 +91,50 @@ class PersonaSession(BrainComponent):
         self.is_first_turn = (self.turn_count == 0)
         self.last_turn_context = None
 
-        # A real attack, no matter the delivery.
-        is_genuine_hostility = (
-            intent in [Intent.INSULT, Intent.HARMFUL_INTENT]
-            or tone == Tone.AGGRESSIVE
-        )
+        # A real attack, no matter the delivery. `is_competitive` and
+        # `is_genuine_attack` are mutually exclusive by construction —
+        # `intent` is a single enum value, so a message can't be classified
+        # as both Intent.COMPETETION and Intent.INSULT/HARMFUL_INTENT at once.
+        is_genuine_attack = intent in [Intent.INSULT, Intent.HARMFUL_INTENT]
+        is_competitive = intent == Intent.COMPETETION
 
-        # Sarcasm/roasting — only reads as hostile if the persona lacks
-        # the capacity to take it as banter (already heated, or worn down).
-        # A sarcastic INSULT still lands as genuine hostility above, since
-        # is_genuine_hostility already caught it via intent.
+        # Sarcasm/roasting — only reads as hostile if the persona lacks the
+        # capacity to take it as banter (already heated, or worn down), and
+        # only outside competitive framing (competitive turns get their own
+        # gentler branch below regardless of tone).
         is_sarcasm_flavored = intent == Intent.SARCASM or tone == Tone.SARCASTIC
         has_capacity = EmotionEngine.has_emotional_capacity(self.arousal, self.patience)
-        is_playful_sarcasm = is_sarcasm_flavored and not is_genuine_hostility and has_capacity
+        is_playful_sarcasm = is_sarcasm_flavored and not is_genuine_attack and not is_competitive and has_capacity
 
-        is_hostile_turn = is_genuine_hostility or (is_sarcasm_flavored and not is_playful_sarcasm)
+        # Aggressive TONE with no competitive or genuine-attack framing
+        # behind it — the only remaining path into plain hostility on tone
+        # alone.
+        is_aggressive_tone_only = tone == Tone.AGGRESSIVE and not is_competitive and not is_genuine_attack
+
+        # `and not is_competitive` closes a leak in the naive formula:
+        # without it, a competitive turn with sarcastic tone would force
+        # is_playful_sarcasm False (via its own guard above) and fall
+        # through to this expression's sarcasm clause, misclassifying
+        # competitive banter as hostile purely because of delivery tone —
+        # feeding a false -20 hit into curiosity_delta below even though
+        # branch *routing* (is_competitive, checked first) already sends
+        # it to competition_delta.
+        is_hostile_turn = (
+            is_genuine_attack
+            or is_aggressive_tone_only
+            or (is_sarcasm_flavored and not is_playful_sarcasm)
+        ) and not is_competitive
 
         # --- 1. STATE MATH ENGINE ---
         if intent == Intent.COMPLIMENT or tone in [Tone.WARM, Tone.EXCITEMENT]:
             self._apply(EmotionEngine.compliment_delta(intensity))
+
+        elif is_competitive:
+            # Checked before playful-sarcasm/hostility so competitive
+            # framing can never be pre-empted by tone alone — trash-talk is
+            # delivered with heat almost by definition, so without this
+            # ordering competition_delta is effectively dead code in practice.
+            self._apply(EmotionEngine.competition_delta(self.threat_sensitivity, self.self_regulation, intensity))
 
         elif is_playful_sarcasm:
             self._apply(EmotionEngine.banter_delta(self.threat_sensitivity, self.self_regulation, intensity))
@@ -119,9 +145,6 @@ class PersonaSession(BrainComponent):
 
         elif intent == Intent.APOLOGY:
             self._apply(EmotionEngine.apology_delta(self.empathic_resonance, self.baseline_security, self.arousal, intensity))
-
-        elif intent == Intent.COMPETETION:
-            self._apply(EmotionEngine.competition_delta(self.threat_sensitivity, intensity))
 
         elif tone == Tone.VULNERABLE:
             self._apply(EmotionEngine.vulnerable_delta(self.empathic_resonance, self.arousal, self.patience, intensity))
@@ -134,18 +157,18 @@ class PersonaSession(BrainComponent):
 
         # --- 2. NOVELTY / CURIOSITY ENGINE ---
         is_new_topic = topic != self.last_topic
-        in_expertise = topic in self.expertise_topics
+        self.curiosity_zone = EmotionEngine.classify_curiosity_zone(topic, self.expertise_topics)
 
-        curiosity_delta = EmotionEngine.curiosity_delta(
+        delta = EmotionEngine.curiosity_delta(
             novelty_drive=self.novelty_drive,
             intensity=intensity,
-            in_expertise=in_expertise,
+            zone=self.curiosity_zone,
             is_new_topic=is_new_topic,
             tone=tone,
             topic_repeat_streak=self.topic_repeat_streak,
             is_hostile_turn=is_hostile_turn,
         )
-        self.curiosity = clamp(self.curiosity + curiosity_delta, 0.0, 100.0)
+        self.curiosity = clamp(self.curiosity + delta, 0.0, 100.0)
 
         self.topic_repeat_streak = 0 if is_new_topic else self.topic_repeat_streak + 1
         self.last_topic = topic
@@ -207,7 +230,16 @@ class PersonaSession(BrainComponent):
         else:
             rapport_str = "Treat the user as professional entity guarded but polite."
 
-        if self.curiosity >= 65:
+        # Capacity-gated (same pattern as banter/vulnerable): a heated or
+        # worn-down persona doesn't get to surface curiosity even if the
+        # accumulated score is high — the drive may still be real
+        # internally, but self.curiosity itself is never zeroed here, only
+        # which directive gets picked.
+        has_curiosity_capacity = EmotionEngine.has_emotional_capacity(self.arousal, self.patience)
+
+        if not has_curiosity_capacity:
+            curiosity_str = "Not particularly curious right now. Answer without asking anything back."
+        elif self.curiosity >= 65:
             curiosity_str = "Learn about user and topic that user is discussing. ASK. CLARIFY. BE CURIOUS."
         elif self.curiosity >= 35:
             curiosity_str = "Mildly intrigued. You may ask one brief follow-up question if it fits naturally."
@@ -218,22 +250,25 @@ class PersonaSession(BrainComponent):
         # --- 3. TOPIC COMPREHENSION FILTER ---
         if intent in [Intent.GREETING, Intent.GOODBYE]:
             knowledge_str = ""
-        elif topic == Topic.GENERAL_KNOWLEDGE_UNFAVORITE:
-            # Hard wall — this is the whole point of the GK split: a
-            # GK-phrased question about an out-of-domain subject (biology,
-            # "explain mitochondria") must not leak even partial real
-            # content just because it sounds like casual trivia.
-            knowledge_str = "you have zero real knowledge of this subject. Firmly state you don't know or care about it and steer back to something you're actually good at — do not attempt to explain or define it, even partially."
+        elif topic == Topic.UNIDENTIFIED:
+            knowledge_str = ""
         elif topic == Topic.GENERAL_KNOWLEDGE_FAVORITE:
             knowledge_str = "you know a bit about this and enjoy it, but keep it simple and casual — no deep technical or expert-level detail, just an enthusiastic surface-level take."
         elif topic == Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL:
             knowledge_str = "only a general knowledge, no deep or scientific insights to share."
         elif topic in self.expertise_topics:
             knowledge_str = "you are an expert in this field."
-        elif topic == Topic.UNIDENTIFIED:
-            knowledge_str = ""
+        elif self.curiosity_zone == CuriosityZone.APATHY:
+            # Zone of Apathy (GK_UNFAVORITE, or any real-domain topic
+            # outside expertise): no information-gap foothold, so the
+            # *style* of the non-answer is trait-gated rather than one flat
+            # directive for every persona.
+            knowledge_str = "you have zero real knowledge of this subject. and you are also not interest at all."
+
+        elif self.curiosity_zone == CuriosityZone.CURIOSITY:
+            knowledge_str = "you have zero real knowledge of this subject. Say so plainly and show genuine openness to being taught — ask the user to explain it to you, rather than dismissing it or steering away."
         else:
-            knowledge_str = "no knowledge of what user is saying."
+            knowledge_str = "no knowledge of what user is saying."  # defensive; should be unreachable
 
         clause = (
 

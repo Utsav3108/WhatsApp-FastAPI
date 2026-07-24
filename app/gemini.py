@@ -222,6 +222,7 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
 
 async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
+    print("===="*70)
     past_messages = past_messages[-10:]  # Limit to last 10 historical messages
     
     # Example of mapping your DB rows to the Gemini format
@@ -358,6 +359,10 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
     except Exception as e:
         print(f"Error generating response from Gemini: {e}")
         ai_text = "Can we continue this conversation later? I'm having trouble in my stomach and need to step away for a moment."
+
+    print("User's Message: ", question)
+    print("Donald Trump: ", ai_text)
+    print("===="*70)
 
     MessageCreate_data = {
         "sender_id": persona.id,

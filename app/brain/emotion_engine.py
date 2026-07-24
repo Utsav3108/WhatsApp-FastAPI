@@ -1,6 +1,5 @@
 # app/brain/emotion_engine.py
 from enum import Enum
-from typing import List
 
 from app.brain.schemas import Tone, Topic
 
@@ -156,26 +155,26 @@ class EmotionEngine:
         }
 
     @staticmethod
-    def classify_curiosity_zone(topic: Topic, expertise_topics: List[Topic]) -> "CuriosityZone":
+    def classify_curiosity_zone(topic: Topic) -> "CuriosityZone":
         """
-        Maps the classifier's existing topic label onto Information Gap
-        Theory's three curiosity zones — no new classifier dimension
-        needed, reuses the GK split. PERSONAL and
-        GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL are checked first, before
-        expertise-topic membership, so a persona that happens to have
-        PERSONAL in its expertise_topics (e.g. Trump) doesn't get misrouted
-        into Boredom — these two topics are a rapport mechanism, not an
-        information-gap mechanism, and stay outside the zone system.
+        Maps the classifier's topic label onto Information Gap Theory's
+        curiosity zones. Domain-membership (in/out of the persona's
+        expertise) is now resolved INSIDE the classifier call itself (EXPERT
+        vs NOT_AN_EXPERT), so this is a straight lookup table — no
+        expertise_topics needed here anymore. PERSONAL and
+        GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL map to ROUTED_AROUND: they're a
+        rapport mechanism, not an information-gap mechanism, and stay
+        outside the zone system.
         """
         if topic in (Topic.PERSONAL, Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL):
             return CuriosityZone.ROUTED_AROUND
         if topic == Topic.GENERAL_KNOWLEDGE_FAVORITE:
             return CuriosityZone.CURIOSITY
-        if topic == Topic.GENERAL_KNOWLEDGE_UNFAVORITE:
+        if topic in (Topic.GENERAL_KNOWLEDGE_UNFAVORITE, Topic.NOT_AN_EXPERT):
             return CuriosityZone.APATHY
-        if topic in expertise_topics:
+        if topic == Topic.EXPERT:
             return CuriosityZone.BOREDOM
-        return CuriosityZone.APATHY  # real-domain topic outside expertise, or UNIDENTIFIED
+        return CuriosityZone.APATHY  # UNIDENTIFIED or unexpected value — defensive default
 
     @staticmethod
     def curiosity_delta(novelty_drive: float, intensity: float, zone: "CuriosityZone", is_new_topic: bool,

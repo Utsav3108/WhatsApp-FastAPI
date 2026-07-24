@@ -22,34 +22,31 @@ def make_metadata(intent=Intent.CONVERSATION, tone=Tone.NEUTRAL, intensity=30,
 class TestClassifyCuriosityZone(unittest.TestCase):
 
     def test_favorite_topic_is_curiosity_zone(self):
-        zone = EmotionEngine.classify_curiosity_zone(Topic.GENERAL_KNOWLEDGE_FAVORITE, [Topic.POLITICS])
+        zone = EmotionEngine.classify_curiosity_zone(Topic.GENERAL_KNOWLEDGE_FAVORITE)
         self.assertEqual(zone, CuriosityZone.CURIOSITY)
 
     def test_unfavorite_topic_is_apathy_zone(self):
-        zone = EmotionEngine.classify_curiosity_zone(Topic.GENERAL_KNOWLEDGE_UNFAVORITE, [Topic.POLITICS])
+        zone = EmotionEngine.classify_curiosity_zone(Topic.GENERAL_KNOWLEDGE_UNFAVORITE)
         self.assertEqual(zone, CuriosityZone.APATHY)
 
-    def test_expertise_topic_is_boredom_zone(self):
-        zone = EmotionEngine.classify_curiosity_zone(Topic.POLITICS, [Topic.POLITICS])
+    def test_expert_topic_is_boredom_zone(self):
+        zone = EmotionEngine.classify_curiosity_zone(Topic.EXPERT)
         self.assertEqual(zone, CuriosityZone.BOREDOM)
 
-    def test_non_expertise_real_domain_topic_is_apathy_zone(self):
-        zone = EmotionEngine.classify_curiosity_zone(Topic.SCIENCE, [Topic.POLITICS])
+    def test_not_an_expert_topic_is_apathy_zone(self):
+        zone = EmotionEngine.classify_curiosity_zone(Topic.NOT_AN_EXPERT)
         self.assertEqual(zone, CuriosityZone.APATHY)
 
-    def test_personal_topic_routed_around_even_when_in_expertise_topics(self):
-        # Ordering regression guard: PERSONAL must be checked before
-        # expertise-topic membership, or a persona with PERSONAL in its
-        # expertise_topics (e.g. Trump) would get misrouted into Boredom.
-        zone = EmotionEngine.classify_curiosity_zone(Topic.PERSONAL, [Topic.PERSONAL])
+    def test_personal_topic_is_routed_around(self):
+        zone = EmotionEngine.classify_curiosity_zone(Topic.PERSONAL)
         self.assertEqual(zone, CuriosityZone.ROUTED_AROUND)
 
     def test_life_or_personal_topic_is_routed_around(self):
-        zone = EmotionEngine.classify_curiosity_zone(Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL, [Topic.POLITICS])
+        zone = EmotionEngine.classify_curiosity_zone(Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL)
         self.assertEqual(zone, CuriosityZone.ROUTED_AROUND)
 
     def test_unidentified_topic_is_apathy_zone(self):
-        zone = EmotionEngine.classify_curiosity_zone(Topic.UNIDENTIFIED, [Topic.POLITICS])
+        zone = EmotionEngine.classify_curiosity_zone(Topic.UNIDENTIFIED)
         self.assertEqual(zone, CuriosityZone.APATHY)
 
 
@@ -154,14 +151,14 @@ class TestCuriosityDelta(unittest.TestCase):
 class TestPersonaSessionCuriosityIntegration(unittest.TestCase):
 
     def test_capacity_gate_suppresses_curiosity_directive_when_aroused(self):
-        session = PersonaSession(name="Test", traits={}, expertise_topics=[Topic.POLITICS])
+        session = PersonaSession(name="Test", traits={}, expertise_topics=["politics"])
         session.curiosity = 80.0
         session.arousal = 75.0  # above the has_emotional_capacity ceiling of 70
         session.patience = 50.0
         session.turn_count = 1  # not first turn, so the GREETING short-circuit doesn't apply
 
         context = BrainContext(question="test", metadata=make_metadata(
-            intent=Intent.CONVERSATION, topic_domain=Topic.POLITICS
+            intent=Intent.CONVERSATION, topic_domain=Topic.EXPERT
         ))
         clause = session.compile_prompt(context)
 
@@ -169,23 +166,23 @@ class TestPersonaSessionCuriosityIntegration(unittest.TestCase):
         self.assertNotIn("ASK. CLARIFY. BE CURIOUS", clause)
         self.assertEqual(session.curiosity, 80.0)  # untouched — only the directive changes
 
-    def test_favorite_topic_stronger_followup_than_expertise_topic(self):
+    def test_favorite_topic_stronger_followup_than_expert_topic(self):
         traits = {"novelty_drive": 100.0}
 
-        session_fav = PersonaSession(name="Fav", traits=traits, expertise_topics=[Topic.POLITICS])
+        session_fav = PersonaSession(name="Fav", traits=traits, expertise_topics=["politics"])
         session_fav.update(BrainContext(question="q", metadata=make_metadata(
             intent=Intent.ASK, intensity=30, topic_domain=Topic.GENERAL_KNOWLEDGE_FAVORITE
         )))
 
-        session_bore = PersonaSession(name="Bore", traits=traits, expertise_topics=[Topic.POLITICS])
+        session_bore = PersonaSession(name="Bore", traits=traits, expertise_topics=["politics"])
         session_bore.update(BrainContext(question="q", metadata=make_metadata(
-            intent=Intent.ASK, intensity=30, topic_domain=Topic.POLITICS
+            intent=Intent.ASK, intensity=30, topic_domain=Topic.EXPERT
         )))
 
         self.assertGreater(session_fav.curiosity, session_bore.curiosity)
 
     def test_repeated_favorite_topic_decays_curiosity_over_turns(self):
-        session = PersonaSession(name="Test", traits={"novelty_drive": 100.0}, expertise_topics=[Topic.POLITICS])
+        session = PersonaSession(name="Test", traits={"novelty_drive": 100.0}, expertise_topics=["politics"])
         deltas = []
         prev = session.curiosity
         for _ in range(4):
@@ -200,17 +197,17 @@ class TestPersonaSessionCuriosityIntegration(unittest.TestCase):
             self.assertGreaterEqual(earlier, later)
         self.assertLess(deltas[-1], deltas[0])
 
-    def test_high_intensity_expertise_claim_spikes_curiosity(self):
+    def test_high_intensity_expert_claim_spikes_curiosity(self):
         traits = {"novelty_drive": 100.0}
 
-        session_low = PersonaSession(name="Low", traits=traits, expertise_topics=[Topic.POLITICS])
+        session_low = PersonaSession(name="Low", traits=traits, expertise_topics=["politics"])
         session_low.update(BrainContext(question="q", metadata=make_metadata(
-            intent=Intent.ASK, intensity=30, topic_domain=Topic.POLITICS
+            intent=Intent.ASK, intensity=30, topic_domain=Topic.EXPERT
         )))
 
-        session_high = PersonaSession(name="High", traits=traits, expertise_topics=[Topic.POLITICS])
+        session_high = PersonaSession(name="High", traits=traits, expertise_topics=["politics"])
         session_high.update(BrainContext(question="q", metadata=make_metadata(
-            intent=Intent.ASK, intensity=90, topic_domain=Topic.POLITICS
+            intent=Intent.ASK, intensity=90, topic_domain=Topic.EXPERT
         )))
 
         self.assertGreater(session_high.curiosity, session_low.curiosity)
@@ -219,9 +216,9 @@ class TestPersonaSessionCuriosityIntegration(unittest.TestCase):
         session = PersonaSession(
             name="Bridger",
             traits={"baseline_security": 80.0, "empathic_resonance": 25.0},
-            expertise_topics=[Topic.POLITICS],
+            expertise_topics=["politics"],
         )
-        context = BrainContext(question="q", metadata=make_metadata(intent=Intent.ASK, topic_domain=Topic.SCIENCE))
+        context = BrainContext(question="q", metadata=make_metadata(intent=Intent.ASK, topic_domain=Topic.NOT_AN_EXPERT))
         session.update(context)
         clause = session.compile_prompt(context)
 
@@ -231,9 +228,9 @@ class TestPersonaSessionCuriosityIntegration(unittest.TestCase):
         session = PersonaSession(
             name="Honest",
             traits={"baseline_security": 30.0, "empathic_resonance": 80.0},
-            expertise_topics=[Topic.POLITICS],
+            expertise_topics=["politics"],
         )
-        context = BrainContext(question="q", metadata=make_metadata(intent=Intent.ASK, topic_domain=Topic.SCIENCE))
+        context = BrainContext(question="q", metadata=make_metadata(intent=Intent.ASK, topic_domain=Topic.NOT_AN_EXPERT))
         session.update(context)
         clause = session.compile_prompt(context)
 

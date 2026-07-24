@@ -7,9 +7,9 @@ from google.genai.errors import ServerError, APIError
 from app import models, schemas
 
 from app.brain.brain_builder import brain
-from typing import List, Union
+from typing import List, Optional, Union
 
-from app.persona.persona_session import active_persona
+from app.persona.persona_session import PersonaSession
 
 import dotenv
 
@@ -96,11 +96,7 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
         slider_traits = {
             "confidence": sliders.confidence,
             "humor": sliders.humor,
-            "warmth": sliders.warmth,
-            "curiosity": sliders.curiosity,
             "competitiveness": sliders.competitiveness,
-            "patience": sliders.patience,
-            "emotionality": sliders.emotionality,
             "assertiveness": sliders.assertiveness,
             "intelligence": sliders.intelligence,
             "playfulness": sliders.playfulness
@@ -131,17 +127,6 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
             speech_parts.append(f"Custom Speech Instructions: {speech.custom}")
         if speech_parts:
             sections.append("## SPEECH & TALKING STYLE\n" + "\n".join(f"- {p}" for p in speech_parts))
-
-    # 5. Emotional Profile
-    emotional = data.emotional_profile
-    if emotional:
-        emo_parts = []
-        if emotional.traits:
-            emo_parts.append(f"Emotional Tendencies: {', '.join(emotional.traits)}")
-        if emotional.custom:
-            emo_parts.append(f"Emotional Behaviors: {emotional.custom}")
-        if emo_parts:
-            sections.append("## EMOTIONAL PROFILE\n" + "\n".join(f"- {p}" for p in emo_parts))
 
     # 6. Humor
     humor = data.humor
@@ -181,17 +166,6 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
     if backstory:
         sections.append(f"## BACKSTORY & HISTORY\n{backstory}")
 
-    # 10. Relationship Style
-    rel = data.relationship_style
-    if rel:
-        rel_parts = []
-        if rel.treat_user_as:
-            rel_parts.append(f"Treat User As: {rel.treat_user_as}")
-        if rel.behaviors:
-            rel_parts.append(f"Interaction Stance: {', '.join(rel.behaviors)}")
-        if rel_parts:
-            sections.append("## RELATIONSHIP & INTERACTION MODEL\n" + "\n".join(f"- {p}" for p in rel_parts))
-
     # 11. Response Rules
     rules = data.response_rules
     if rules:
@@ -220,7 +194,7 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
 
     return formatted_traits, example_prompt
 
-async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
+async def ask_gemini(question, persona : schemas.PersonaResponse, persona_session: Optional[PersonaSession] = None, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
     print("===="*70)
     past_messages = past_messages[-10:]  # Limit to last 10 historical messages
@@ -304,15 +278,18 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
                 
         """
     else:
-        pass
+        # Regular (non-challenge) persona chat — the only path Brain/
+        # PersonaSession is wired into. Challenges use the dedicated
+        # system_instructions built above, independent of Brain (see
+        # CLAUDE.md's "Challenges" section) — previously this branch was
+        # unconditionally overwritten below regardless of `challenge`,
+        # silently discarding the challenge-specific prompt above; fixed by
+        # scoping the brain.build() call to the non-challenge case only.
+        system_instructions = await brain.build(question, persona_session, past_conversation=formatted_history)
 
-    
-    system_instructions = await brain.build(question, active_persona, past_conversation=formatted_history)
+        print("System Instructions for Gemini:\n", system_instructions)
 
-
-    print("System Instructions for Gemini:\n", system_instructions)
-
-    active_persona.print_states()
+        persona_session.print_states()
 
     config = types.GenerateContentConfig(
         system_instruction=system_instructions,
@@ -368,7 +345,8 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
         "sender_id": persona.id,
         "receiver_id": senderId,
         "text": ai_text,
-        "challenge_session_id": challenge_session_id
+        "challenge_session_id": challenge_session_id,
+        "persona_session_id": persona_session.session_id if persona_session else None,
     }
 
     MessageCreate_obj = schemas.MessageCreate(**MessageCreate_data)

@@ -1,6 +1,6 @@
 import uuid
 import json
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, Enum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, Float, ForeignKey, JSON, Enum, UniqueConstraint
 from sqlalchemy.types import TypeDecorator, TEXT
 from app.database import Base
 from sqlalchemy import DateTime
@@ -105,6 +105,47 @@ class Persona(Base):
     bio = Column(String, nullable=True)
     settings = Column(SafeJSON, nullable=True)
 
+class PersonaSessionModel(Base):
+    """
+    Persisted Brain/emotion-engine state for one (ai_persona, human_persona)
+    pair — the DB-backed counterpart to the in-memory
+    app.persona.persona_session.PersonaSession class (deliberately named
+    differently to avoid an import collision in any file that needs both).
+    Regular persona chat only; challenges don't use this yet (see
+    messages.persona_session_id below).
+    """
+    __tablename__ = "persona_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    ai_persona_id = Column(Integer, ForeignKey("personas.id"), nullable=False, index=True)
+    human_persona_id = Column(Integer, ForeignKey("personas.id"), nullable=False, index=True)
+    # Deliberately no unique constraint on (ai_persona_id, human_persona_id)
+    # — multiple concurrent sessions per pair (forks) are a supported case.
+
+    arousal = Column(Float, nullable=False)
+    patience = Column(Float, nullable=False)
+    mood = Column(Float, nullable=False, default=0)
+    rapport = Column(Float, nullable=False, default=0)
+    curiosity = Column(Float, nullable=False, default=0)
+
+    last_subject = Column(String, nullable=True)
+    topic_repeat_streak = Column(Integer, nullable=False, default=0)
+    turn_count = Column(Integer, nullable=False, default=0)
+
+    violation_count = Column(Integer, nullable=False, default=0)
+    is_blocked = Column(Boolean, nullable=False, default=False)
+    block_reason = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # onupdate=func.now() is what makes "most-recent-active fork" selection
+    # work without extra application-level bookkeeping — bumped on every
+    # save() call.
+
+    ai_persona = relationship("Persona", foreign_keys=[ai_persona_id])
+    human_persona = relationship("Persona", foreign_keys=[human_persona_id])
+
 class Message(Base):
     __tablename__ = "messages"
 
@@ -122,6 +163,20 @@ class Message(Base):
         nullable=True,
         index=True
     )
+
+    persona_session_id = Column(
+        Integer,
+        ForeignKey("persona_sessions.id"),
+        nullable=True,
+        index=True
+    )
+    # Mirrors challenge_session_id above. A regular-chat message should have
+    # this set; a challenge message currently should NOT (until a future
+    # task wires Brain/PersonaSession into challenges too, at which point
+    # this and challenge_session_id will need to coexist on the same row).
+    # Deliberately no CHECK constraint enforcing mutual exclusivity with
+    # challenge_session_id — that assumption won't hold once challenges
+    # adopt Brain as well.
 
 
 

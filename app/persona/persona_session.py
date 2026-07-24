@@ -7,22 +7,23 @@ from app.brain.brain_component import BrainComponent
 
 
 class PersonaSession(BrainComponent):
-    def __init__(self, name: str, traits: Dict[str, float], expertise_topics: Optional[List[Topic]] = None,
+    def __init__(self, name: str, traits: Dict[str, float], expertise_topics: Optional[List[str]] = None,
                  violation_block_threshold: int = 2):
 
         self.summary = ""
         self.persona = name
-        self.user_info = """
+        # Built fresh from structured fields at load() time — never stored
+        # as literal text. Empty until hydrated (see load()/_format_user_info
+        # below); a session constructed directly (e.g. in tests) simply gets
+        # no user_info clause in compile_prompt.
+        self.user_info = ""
 
-        Information about user you are talking to:
-        Name : Utsav Hitendrabhai Pandya\n
-        Profession : iOS Developer\n
-        Country : India\n
-        City : Ahmedabad\n
-        Likes : Politics, GeoPolitics, Cricket, Football\n
-        Dislikes : Negative things, Cheap talks\n
-        
-        """
+        # DB identity — None until load()/save() resolve or create a row.
+        # PersonaSession itself never opens a DB session; these are plain
+        # data the caller uses to hydrate/persist via load()/save().
+        self.session_id: Optional[int] = None
+        self.ai_persona_id: Optional[int] = None
+        self.human_persona_id: Optional[int] = None
 
         self.threat_sensitivity = traits.get('threat_sensitivity', 50.0)
         self.self_regulation = traits.get('self_regulation', 50.0)
@@ -30,7 +31,11 @@ class PersonaSession(BrainComponent):
         self.baseline_security = traits.get('baseline_security', 50.0)
         self.empathic_resonance = traits.get('empathic_resonance', 50.0)
 
-        self.expertise_topics = expertise_topics if expertise_topics is not None else [Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL]
+        # Free-text domain descriptions (e.g. "real estate, business deals"),
+        # sourced from traits.interests_expertise.expertise — fed directly
+        # into the classifier's _detect_topic prompt as the persona's
+        # expertise list, not compared against Topic enum members anymore.
+        self.expertise_topics: List[str] = expertise_topics if expertise_topics is not None else []
 
         self.arousal = max(0.0, 30.0 - (self.baseline_security / 4.0))
         self.patience = min(100.0, 40.0 + (self.self_regulation / 2.0))
@@ -40,6 +45,7 @@ class PersonaSession(BrainComponent):
         self.curiosity_zone: Optional[CuriosityZone] = None
 
         self.last_topic: Optional[Topic] = None
+        self.last_subject: Optional[str] = None
         self.topic_repeat_streak = 0
         self.turn_count = 0
         self.is_first_turn = True
@@ -56,6 +62,160 @@ class PersonaSession(BrainComponent):
         self.is_blocked = False
         self.block_reason: Optional[str] = None
         self.BLOCK_THRESHOLD = 100
+
+    # --- Persistence boundary -------------------------------------------
+    # update()/compile_prompt()/_apply()/register_violation() stay
+    # completely unchanged, pure in-memory logic. load()/save() are the only
+    # two methods aware of the DB — a hydrate/dehydrate boundary around the
+    # class, called once per message (not cached across messages), matching
+    # the existing "DB sessions open only for brief windows, Gemini calls
+    # made outside any open session" discipline already used in
+    # socketio_server.py. persona_sessions is deliberately NOT added to the
+    # Redis cache layer (app/cache.py) — it's mutated every turn, so a naive
+    # TTL cache risks lost-update races on concurrent/cancelled turns.
+
+    @staticmethod
+    def _format_user_info(human_persona) -> str:
+        """
+        Builds the user_info clause fresh from a human persona's structured
+        traits + settings — never stored as literal text. `traits` may be a
+        legacy free-text string (TraitsType = Union[StructuredTraits, str]),
+        in which case there's nothing structured to pull from.
+        """
+        traits = human_persona.traits
+        lines = [f"Name: {human_persona.name}"]
+
+        identity = getattr(traits, "identity", None)
+        if identity:
+            if identity.profession:
+                lines.append(f"Profession: {identity.profession}")
+            if identity.nationality:
+                lines.append(f"Country: {identity.nationality}")
+
+        city = (human_persona.settings or {}).get("city") if human_persona.settings else None
+        if city:
+            lines.append(f"City: {city}")
+
+        likes_dislikes = getattr(traits, "likes_dislikes", None)
+        if likes_dislikes:
+            if likes_dislikes.likes:
+                lines.append(f"Likes: {', '.join(likes_dislikes.likes)}")
+            if likes_dislikes.dislikes:
+                lines.append(f"Dislikes: {', '.join(likes_dislikes.dislikes)}")
+
+        return "\n".join(lines)
+
+    @classmethod
+    async def load(cls, db, ai_persona_id: int, human_persona_id: int,
+                    persona_session_id: Optional[int] = None) -> "PersonaSession":
+        """
+        Hydrates a PersonaSession from the most-recently-updated
+        persona_sessions row for (ai_persona_id, human_persona_id) — or a
+        specific row if persona_session_id (an explicit fork pick) is given
+        — falling back to __init__'s baseline-formula defaults if the pair
+        has never talked before.
+        """
+        from sqlalchemy import select
+        from app import models as db_models
+        from app.persona import persona_service
+
+        ai_persona = await persona_service.get_persona_by_id(db, ai_persona_id)
+        human_persona = await persona_service.get_persona_by_id(db, human_persona_id)
+
+        brain_traits: Dict[str, float] = {}
+        expertise: List[str] = []
+        ai_traits = ai_persona.traits
+        brain_profile = getattr(ai_traits, "brain", None)
+        if brain_profile:
+            brain_traits = brain_profile.model_dump()
+        interests_expertise = getattr(ai_traits, "interests_expertise", None)
+        if interests_expertise and interests_expertise.expertise:
+            expertise = interests_expertise.expertise
+
+        session = cls(name=ai_persona.name, traits=brain_traits, expertise_topics=expertise)
+        session.ai_persona_id = ai_persona_id
+        session.human_persona_id = human_persona_id
+        session.user_info = cls._format_user_info(human_persona)
+
+        if persona_session_id is not None:
+            row = await db.get(db_models.PersonaSessionModel, persona_session_id)
+        else:
+            result = await db.execute(
+                select(db_models.PersonaSessionModel)
+                .where(db_models.PersonaSessionModel.ai_persona_id == ai_persona_id)
+                .where(db_models.PersonaSessionModel.human_persona_id == human_persona_id)
+                .order_by(db_models.PersonaSessionModel.updated_at.desc())
+                .limit(1)
+            )
+            row = result.scalars().first()
+
+        if row is not None:
+            session.session_id = row.id
+            session.arousal = row.arousal
+            session.patience = row.patience
+            session.mood = row.mood
+            session.rapport = row.rapport
+            session.curiosity = row.curiosity
+            session.last_subject = row.last_subject
+            session.topic_repeat_streak = row.topic_repeat_streak
+            session.turn_count = row.turn_count
+            session.violation_count = row.violation_count
+            session.is_blocked = row.is_blocked
+            session.block_reason = row.block_reason
+        # else: leave __init__'s baseline defaults in place, session_id
+        # stays None until save() performs the initial INSERT.
+
+        return session
+
+    async def save(self, db):
+        """
+        INSERT if this is the first save for this pair, else UPDATE by id.
+        updated_at is bumped automatically via onupdate=func.now() — no
+        explicit set needed, and that's what makes most-recent-active fork
+        selection in load() work without extra bookkeeping.
+        """
+        from sqlalchemy import update as sa_update
+        from app import models as db_models
+
+        if self.session_id is None:
+            new_row = db_models.PersonaSessionModel(
+                ai_persona_id=self.ai_persona_id,
+                human_persona_id=self.human_persona_id,
+                arousal=self.arousal,
+                patience=self.patience,
+                mood=self.mood,
+                rapport=self.rapport,
+                curiosity=self.curiosity,
+                last_subject=self.last_subject,
+                topic_repeat_streak=self.topic_repeat_streak,
+                turn_count=self.turn_count,
+                violation_count=self.violation_count,
+                is_blocked=self.is_blocked,
+                block_reason=self.block_reason,
+            )
+            db.add(new_row)
+            await db.commit()
+            await db.refresh(new_row)
+            self.session_id = new_row.id
+        else:
+            await db.execute(
+                sa_update(db_models.PersonaSessionModel)
+                .where(db_models.PersonaSessionModel.id == self.session_id)
+                .values(
+                    arousal=self.arousal,
+                    patience=self.patience,
+                    mood=self.mood,
+                    rapport=self.rapport,
+                    curiosity=self.curiosity,
+                    last_subject=self.last_subject,
+                    topic_repeat_streak=self.topic_repeat_streak,
+                    turn_count=self.turn_count,
+                    violation_count=self.violation_count,
+                    is_blocked=self.is_blocked,
+                    block_reason=self.block_reason,
+                )
+            )
+            await db.commit()
 
     def _apply(self, deltas: dict):
         if "arousal" in deltas:
@@ -156,8 +316,15 @@ class PersonaSession(BrainComponent):
         # GREETING / GOODBYE: intentional no-op.
 
         # --- 2. NOVELTY / CURIOSITY ENGINE ---
-        is_new_topic = topic != self.last_topic
-        self.curiosity_zone = EmotionEngine.classify_curiosity_zone(topic, self.expertise_topics)
+        # is_same_subject is the model's direct continuity judgment (made
+        # using full previous_messages context), not a comparison of the
+        # classifier's topic_domain across turns — this is what fixes the
+        # topic-continuity leak: a subject denied on turn N stays denied on
+        # a topic-vague follow-up at turn N+1 instead of silently
+        # reclassifying.
+        is_new_topic = not context.is_same_subject
+        self.last_subject = context.subject_label  # logging/debugging only, never compared
+        self.curiosity_zone = EmotionEngine.classify_curiosity_zone(topic)
 
         delta = EmotionEngine.curiosity_delta(
             novelty_drive=self.novelty_drive,
@@ -248,25 +415,45 @@ class PersonaSession(BrainComponent):
 
         knowledge_str = ""
         # --- 3. TOPIC COMPREHENSION FILTER ---
+        # EXPERT/NOT_AN_EXPERT already encode the in/out-of-domain decision
+        # inside the classifier call, so this no longer needs a
+        # `topic in self.expertise_topics` check — trust the classifier's
+        # resolution directly. PERSONAL gets its own explicit branch here
+        # (routed around entirely, no gating) rather than falling through to
+        # an expertise-membership check, which is what previously let
+        # PERSONAL leak "you are an expert in this field" whenever a
+        # persona's expertise_topics happened to include Topic.PERSONAL.
         if intent in [Intent.GREETING, Intent.GOODBYE]:
             knowledge_str = ""
         elif topic == Topic.UNIDENTIFIED:
             knowledge_str = ""
-        elif topic == Topic.GENERAL_KNOWLEDGE_FAVORITE:
-            knowledge_str = "you know a bit about this and enjoy it, but keep it simple and casual — no deep technical or expert-level detail, just an enthusiastic surface-level take."
+        elif topic == Topic.PERSONAL:
+            knowledge_str = ""
         elif topic == Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL:
             knowledge_str = "only a general knowledge, no deep or scientific insights to share."
-        elif topic in self.expertise_topics:
+        elif topic == Topic.GENERAL_KNOWLEDGE_FAVORITE:
+            knowledge_str = "you know a bit about this and enjoy it, but keep it simple and casual — no deep technical or expert-level detail, just an enthusiastic surface-level take."
+        elif topic == Topic.EXPERT:
             knowledge_str = "you are an expert in this field."
-        elif self.curiosity_zone == CuriosityZone.APATHY:
-            # Zone of Apathy (GK_UNFAVORITE, or any real-domain topic
-            # outside expertise): no information-gap foothold, so the
-            # *style* of the non-answer is trait-gated rather than one flat
-            # directive for every persona.
-            knowledge_str = "you have zero real knowledge of this subject. and you are also not interest at all."
-
-        elif self.curiosity_zone == CuriosityZone.CURIOSITY:
-            knowledge_str = "you have zero real knowledge of this subject. Say so plainly and show genuine openness to being taught — ask the user to explain it to you, rather than dismissing it or steering away."
+        elif topic in (Topic.GENERAL_KNOWLEDGE_UNFAVORITE, Topic.NOT_AN_EXPERT):
+            # Zone of Apathy — trait-gated bridging behavior: a persona high
+            # in baseline_security and low in empathic_resonance reflexively
+            # relates the unfamiliar subject to something they do know
+            # instead of plainly admitting ignorance.
+            should_bridge = self.baseline_security >= 60.0 and self.empathic_resonance <= 30.0
+            if should_bridge:
+                knowledge_str = (
+                    "you have zero real knowledge of this subject, but rather than plainly "
+                    "admitting that, reflexively try to relate or compare it to something in your "
+                    "own areas of expertise — ask if it's some kind of version of something you "
+                    "already know, as a real (if slightly clueless) question, not a dismissal."
+                )
+            else:
+                knowledge_str = (
+                    "you have zero real knowledge of this subject. Say so plainly and show genuine "
+                    "openness to being taught — ask the user to explain it to you, rather than "
+                    "dismissing it or steering away."
+                )
         else:
             knowledge_str = "no knowledge of what user is saying."  # defensive; should be unreachable
 
@@ -297,16 +484,3 @@ class PersonaSession(BrainComponent):
     def print_states(self):
         print(f"Arousal: {self.arousal:.1f} | Patience: {self.patience:.1f} | Mood: {self.mood:.1f} | "
               f"Rapport: {self.rapport:.1f} | Curiosity: {self.curiosity:.1f} | Violations: {self.violation_count}")
-
-
-active_persona = PersonaSession(
-    name="Donald Trump",
-    traits={
-        "threat_sensitivity": 30.0,
-        "self_regulation": 80.0,
-        "novelty_drive": 55.0,
-        "baseline_security": 80.0,
-        "empathic_resonance": 25.0
-    },
-    expertise_topics=[Topic.POLITICS, Topic.PERSONAL, Topic.BUSINESS]
-)

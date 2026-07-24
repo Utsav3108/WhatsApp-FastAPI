@@ -29,7 +29,7 @@ TRUMP_TRAITS = {
 class TestHostileTurnClassification(unittest.TestCase):
 
     def test_genuine_insult_routes_to_hostility_not_competition(self):
-        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=[Topic.POLITICS])
+        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=["politics"])
         context = BrainContext(question="q", metadata=make_metadata(intent=Intent.INSULT, tone=Tone.NEUTRAL, intensity=75))
         arousal_before = session.arousal
         session.update(context)
@@ -37,7 +37,7 @@ class TestHostileTurnClassification(unittest.TestCase):
         self.assertAlmostEqual(session.arousal - arousal_before, 22.5)
 
     def test_competitive_aggressive_routes_to_competition_with_small_arousal_delta(self):
-        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=[Topic.POLITICS])
+        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=["politics"])
         context = BrainContext(question="q", metadata=make_metadata(intent=Intent.COMPETETION, tone=Tone.AGGRESSIVE, intensity=75))
         arousal_before = session.arousal
         session.update(context)
@@ -45,7 +45,7 @@ class TestHostileTurnClassification(unittest.TestCase):
         self.assertAlmostEqual(session.arousal - arousal_before, 2.25)
 
     def test_pure_aggressive_tone_no_competitive_intent_routes_to_hostility(self):
-        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=[Topic.POLITICS])
+        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=["politics"])
         context = BrainContext(question="q", metadata=make_metadata(intent=Intent.CONVERSATION, tone=Tone.AGGRESSIVE, intensity=75))
         arousal_before = session.arousal
         session.update(context)
@@ -53,7 +53,7 @@ class TestHostileTurnClassification(unittest.TestCase):
         self.assertAlmostEqual(session.arousal - arousal_before, 33.75)
 
     def test_sarcastic_tone_no_competitive_intent_routes_to_banter(self):
-        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=[Topic.POLITICS])
+        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=["politics"])
         context = BrainContext(question="q", metadata=make_metadata(intent=Intent.CONVERSATION, tone=Tone.SARCASTIC, intensity=75))
         arousal_before = session.arousal
         session.update(context)
@@ -62,7 +62,7 @@ class TestHostileTurnClassification(unittest.TestCase):
         self.assertEqual(session.last_turn_context, 'banter')
 
     def test_competitive_sarcastic_does_not_route_to_hostility(self):
-        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=[Topic.POLITICS])
+        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=["politics"])
         context = BrainContext(question="q", metadata=make_metadata(intent=Intent.COMPETETION, tone=Tone.SARCASTIC, intensity=75))
         arousal_before = session.arousal
         session.update(context)
@@ -71,7 +71,7 @@ class TestHostileTurnClassification(unittest.TestCase):
         self.assertIsNone(session.last_turn_context)  # not routed through banter_delta either
 
     def test_competitive_sarcastic_does_not_trigger_curiosity_hostile_penalty(self):
-        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=[Topic.POLITICS])
+        session = PersonaSession(name="Test", traits=TRUMP_TRAITS, expertise_topics=["politics"])
         context = BrainContext(question="q", metadata=make_metadata(intent=Intent.COMPETETION, tone=Tone.SARCASTIC, intensity=75))
         session.update(context)
         # a -20 flat hostile-turn hit would drive curiosity negative (clamped to 0) from a 0.0 start;
@@ -100,7 +100,7 @@ class TestConversationLogRegression(unittest.TestCase):
     COMPETITIVE_TURN_INDICES = {0, 3, 4, 6, 8}
 
     def _replay_log(self):
-        session = PersonaSession(name="Trump", traits=TRUMP_TRAITS, expertise_topics=[Topic.POLITICS, Topic.PERSONAL, Topic.BUSINESS])
+        session = PersonaSession(name="Trump", traits=TRUMP_TRAITS, expertise_topics=["politics"])
         curiosity_history = [session.curiosity]
         for intent, tone, intensity in self.LOG_TURNS:
             context = BrainContext(question="q", metadata=make_metadata(intent=intent, tone=tone, intensity=intensity))

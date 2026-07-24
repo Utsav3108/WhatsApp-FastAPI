@@ -20,7 +20,7 @@ class Brain:
         
 
         # 1. Analyze the incoming message
-        metadata = await MessageAnalysis.analyze(
+        metadata, is_same_subject, subject_label = await MessageAnalysis.analyze(
             previous_messages=past_conversation,
             text=question,
             expertise_topics=persona_session.expertise_topics
@@ -58,7 +58,12 @@ class Brain:
                 "Response length must be under 4 sentences."
             )
 
-        context = BrainContext(question=question, metadata=metadata)
+        context = BrainContext(
+            question=question,
+            metadata=metadata,
+            is_same_subject=is_same_subject,
+            subject_label=subject_label,
+        )
 
         # 3. Language check
         if context.metadata.language.lower() not in ["english", "en"]:

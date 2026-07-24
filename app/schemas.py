@@ -16,13 +16,16 @@ class IdentityModel(BaseModel):
     intro: Optional[str] = ""
 
 class PersonalitySlidersModel(BaseModel):
+    # patience/curiosity/warmth/emotionality removed — they duplicate what
+    # Brain now computes dynamically per-session under the same names
+    # (PersonaSession.patience/curiosity/mood, driven by emotion_engine.py
+    # formulas). Keeping a static "patience: 5/10" default alongside a live
+    # turn-by-turn patience value creates ambiguity about which number a
+    # prompt-builder means — see BrainProfileModel below for the dynamic
+    # per-persona rate constants that actually drive that state.
     confidence: Optional[int] = 5
     humor: Optional[int] = 5
-    warmth: Optional[int] = 5
-    curiosity: Optional[int] = 5
     competitiveness: Optional[int] = 5
-    patience: Optional[int] = 5
-    emotionality: Optional[int] = 5
     assertiveness: Optional[int] = 5
     intelligence: Optional[int] = 5
     playfulness: Optional[int] = 5
@@ -30,10 +33,6 @@ class PersonalitySlidersModel(BaseModel):
 class SpeechStyleModel(BaseModel):
     tone: Optional[str] = "Casual"
     modifiers: Optional[List[str]] = []
-    custom: Optional[str] = ""
-
-class EmotionalProfileModel(BaseModel):
-    traits: Optional[List[str]] = []
     custom: Optional[str] = ""
 
 class HumorModel(BaseModel):
@@ -48,10 +47,6 @@ class LikesDislikesModel(BaseModel):
     likes: Optional[List[str]] = []
     dislikes: Optional[List[str]] = []
 
-class RelationshipStyleModel(BaseModel):
-    treat_user_as: Optional[str] = "Friend"
-    behaviors: Optional[List[str]] = []
-
 class ResponseRulesModel(BaseModel):
     guidelines: Optional[List[str]] = []
     custom: Optional[str] = ""
@@ -60,20 +55,35 @@ class DialogueExampleModel(BaseModel):
     user: Optional[str] = ""
     persona: Optional[str] = ""
 
+class BrainProfileModel(BaseModel):
+    """
+    The five Brain trait rate-constants (app/brain/ — threat_sensitivity
+    etc.) that drive PersonaSession's per-turn emotional state math. Must be
+    an explicit field on StructuredTraits, not a loose JSON key — Pydantic
+    v2's default `extra` behavior on these models silently strips
+    unrecognized keys, so writing traits.brain as an ad-hoc dict key would
+    appear to save successfully but vanish on the next round-trip through
+    PersonaCreate/PersonaResponse.
+    """
+    threat_sensitivity: Optional[float] = 50.0
+    self_regulation: Optional[float] = 50.0
+    novelty_drive: Optional[float] = 50.0
+    baseline_security: Optional[float] = 50.0
+    empathic_resonance: Optional[float] = 50.0
+
 class StructuredTraits(BaseModel):
     identity: Optional[IdentityModel] = None
     personality_sliders: Optional[PersonalitySlidersModel] = None
     custom_traits: Optional[List[str]] = []
     values: Optional[List[str]] = []
     speech_style: Optional[SpeechStyleModel] = None
-    emotional_profile: Optional[EmotionalProfileModel] = None
     humor: Optional[HumorModel] = None
     interests_expertise: Optional[InterestsExpertiseModel] = None
     likes_dislikes: Optional[LikesDislikesModel] = None
     backstory: Optional[str] = ""
-    relationship_style: Optional[RelationshipStyleModel] = None
     response_rules: Optional[ResponseRulesModel] = None
     example_dialogues: Optional[List[DialogueExampleModel]] = []
+    brain: Optional[BrainProfileModel] = None
 
 def parse_traits(v: Any) -> Any:
     if isinstance(v, str):
@@ -155,6 +165,7 @@ class MessageCreate(BaseModel):
     text: str
     image_object_name: Optional[str] = None
     challenge_session_id: Optional[int] = None
+    persona_session_id: Optional[int] = None
 
 class MessageResponse(MessageCreate):
     id: int

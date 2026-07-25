@@ -3,7 +3,7 @@
 import datetime
 import json
 from typing import Any, List, Optional, Union, Annotated
-from pydantic import BaseModel, ConfigDict, Field, BeforeValidator
+from pydantic import BaseModel, ConfigDict, Field, BeforeValidator, field_validator
 
 from app import enums
 
@@ -70,6 +70,16 @@ class BrainProfileModel(BaseModel):
     novelty_drive: Optional[float] = 50.0
     baseline_security: Optional[float] = 50.0
     empathic_resonance: Optional[float] = 50.0
+
+    @field_validator(
+        "threat_sensitivity", "self_regulation", "novelty_drive",
+        "baseline_security", "empathic_resonance",
+    )
+    @classmethod
+    def _bound_trait(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and not (0.0 <= v <= 100.0):
+            raise ValueError("Brain trait values must be between 0.0 and 100.0")
+        return v
 
 class StructuredTraits(BaseModel):
     identity: Optional[IdentityModel] = None
@@ -381,3 +391,103 @@ class AIContentReportResponse(AIContentReportCreate):
 
     class Config:
         from_attributes = True
+
+
+# --------------------------------------------------------------------------
+# Admin: PersonaSession
+# --------------------------------------------------------------------------
+
+class AdminPersonaSessionPairListItem(BaseModel):
+    ai_persona_id: int
+    ai_persona_name: str
+    human_persona_id: int
+    human_persona_name: str
+    fork_count: int
+    any_fork_blocked: bool
+    latest_updated_at: datetime.datetime
+
+class AdminPersonaSessionForkItem(BaseModel):
+    id: int
+    is_blocked: bool
+    block_reason: Optional[str] = None
+    blocked_until: Optional[datetime.datetime] = None
+    turn_count: int
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
+class AdminPersonaSessionDetail(BaseModel):
+    id: int
+    ai_persona_id: int
+    human_persona_id: int
+    arousal: float
+    patience: float
+    mood: float
+    rapport: float
+    curiosity: float
+    last_subject: Optional[str] = None
+    topic_repeat_streak: int
+    turn_count: int
+    violation_count: int
+    is_blocked: bool
+    block_reason: Optional[str] = None
+    blocked_until: Optional[datetime.datetime] = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    linked_message_count: int
+
+    class Config:
+        from_attributes = True
+
+class AdminResetBlockResponse(BaseModel):
+    id: int
+    is_blocked: bool
+    block_reason: Optional[str] = None
+    blocked_until: Optional[datetime.datetime] = None
+    violation_count: int
+
+    class Config:
+        from_attributes = True
+
+
+# --------------------------------------------------------------------------
+# Admin: Persona
+# --------------------------------------------------------------------------
+
+class AdminPersonaListItem(BaseModel):
+    id: int
+    name: str
+    image_url: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+class AdminPersonaDetail(PersonaResponse):
+    is_active: bool
+    is_admin: bool
+
+class AdminPersonaCreate(BaseModel):
+    name: str
+    desc: str
+    traits: TraitsType
+    image_url: str
+    category: Optional[str] = "Custom Creator"
+    email: Optional[str] = None
+    role: Optional[str] = None
+    bio: Optional[str] = None
+    settings: Optional[dict] = None
+    is_active: Optional[bool] = True
+
+class AdminPersonaUpdate(BaseModel):
+    name: Optional[str] = None
+    desc: Optional[str] = None
+    traits: Optional[TraitsType] = None
+    image_url: Optional[str] = None
+    category: Optional[str] = None
+    bio: Optional[str] = None
+    settings: Optional[dict] = None
+    is_active: Optional[bool] = None
+    is_admin: Optional[bool] = None

@@ -1,4 +1,5 @@
 # app/brain/emotion_engine.py
+import math
 from enum import Enum
 
 from app.brain.schemas import Tone, Topic
@@ -48,6 +49,53 @@ class EmotionEngine:
         underneath an angry directive and snap back the instant arousal dips.
         """
         return min(mood, 0.0) if arousal > threshold else mood
+
+    @staticmethod
+    def half_life_hours(self_regulation: float, threat_sensitivity: float) -> float:
+        """
+        Wall-clock recovery rate — a third, distinct job for the same two
+        traits that already drive in-conversation arousal rise
+        (hostility_delta) and patience drain (banter_delta/
+        competition_delta): how fast this persona cools down BETWEEN
+        conversations, not how reactive or thin-skinned they are DURING
+        one. High self_regulation + low threat_sensitivity -> short
+        half-life, fast cooldown (a secure, even-tempered persona lets
+        things go quickly). Low self_regulation + high threat_sensitivity
+        -> long half-life, slow cooldown (a grudge-holder still simmering
+        the next day with zero new provocation).
+        """
+        return 24.0 * (self_regulation / max(threat_sensitivity, 1.0))
+
+    @staticmethod
+    def time_cooldown_delta(arousal: float, mood: float, patience: float,
+                             self_regulation: float, threat_sensitivity: float,
+                             baseline_security: float, elapsed_hours: float) -> dict:
+        """
+        Pure function — no side effects, no DB awareness, same contract as
+        every other EmotionEngine method. Models wall-clock decay BETWEEN
+        messages (distinct from and unaffected by the turn-based deltas
+        above): arousal relaxes toward 0, mood drifts toward neutral (0),
+        patience regenerates toward 100 (rate gated by baseline_security —
+        a secure persona recovers composure faster than an insecure one
+        given the same quiet time). rapport is DELIBERATELY excluded —
+        it's durable relationship memory, not mood, and does not decay
+        with time.
+        """
+        if elapsed_hours <= 0:
+            return {}
+
+        half_life = EmotionEngine.half_life_hours(self_regulation, threat_sensitivity)
+        cooldown = 1.0 - math.exp(-elapsed_hours / half_life)
+
+        new_arousal = arousal - (arousal * cooldown)
+        new_mood = mood * (1.0 - cooldown)
+        new_patience = patience + (100.0 - patience) * cooldown * (baseline_security / 100.0)
+
+        return {
+            "arousal": new_arousal - arousal,
+            "mood": new_mood - mood,
+            "patience": new_patience - patience,
+        }
 
     @staticmethod
     def compliment_delta(intensity: float) -> dict:

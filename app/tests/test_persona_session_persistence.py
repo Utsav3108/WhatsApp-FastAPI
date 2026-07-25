@@ -88,7 +88,11 @@ class TestPersonaSessionPersistence(unittest.IsolatedAsyncioTestCase):
 
         reloaded = await PersonaSession.load(self.db, AI_ID, HUMAN_ID)
         self.assertEqual(reloaded.session_id, first_id)
-        self.assertAlmostEqual(reloaded.arousal, 55.5)
+        # places=2 rather than the default 7: load() now applies wall-clock
+        # decay proportional to elapsed time since last_emotional_update_at,
+        # so even the sub-millisecond gap between save() and load() in a
+        # fast test run introduces a tiny (~1e-6) but real, expected drift.
+        self.assertAlmostEqual(reloaded.arousal, 55.5, places=2)
         self.assertEqual(reloaded.turn_count, 3)
 
     async def test_load_picks_most_recently_updated_fork(self):
@@ -118,7 +122,8 @@ class TestPersonaSessionPersistence(unittest.IsolatedAsyncioTestCase):
 
         session = await PersonaSession.load(self.db, AI_ID, HUMAN_ID)
         self.assertEqual(session.session_id, newer.id)
-        self.assertAlmostEqual(session.arousal, 90.0)
+        # places=2 — see test_save_creates_row_then_updates_it for why not 7.
+        self.assertAlmostEqual(session.arousal, 90.0, places=2)
 
     async def test_two_pairs_do_not_cross_contaminate(self):
         session_a = await PersonaSession.load(self.db, AI_ID, HUMAN_ID)
@@ -133,8 +138,9 @@ class TestPersonaSessionPersistence(unittest.IsolatedAsyncioTestCase):
         reloaded_b = await PersonaSession.load(self.db, AI_ID_2, HUMAN_ID_2)
 
         self.assertNotEqual(reloaded_a.session_id, reloaded_b.session_id)
-        self.assertAlmostEqual(reloaded_a.arousal, 77.0)
-        self.assertAlmostEqual(reloaded_b.arousal, 12.0)
+        # places=2 — see test_save_creates_row_then_updates_it for why not 7.
+        self.assertAlmostEqual(reloaded_a.arousal, 77.0, places=2)
+        self.assertAlmostEqual(reloaded_b.arousal, 12.0, places=2)
 
 
 if __name__ == "__main__":

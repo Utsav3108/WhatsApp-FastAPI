@@ -1,6 +1,9 @@
 from app.enums import Enum
 from pydantic import BaseModel, Field
 
+class Language(str, Enum):
+    UNDERSTANDS = "understand"
+    NOT_UNDERSTANDS = "not_understand"
 
 class Intent(str, Enum):
     APOLOGY = "Apology"
@@ -62,7 +65,7 @@ class MessageMetadataOnly(BaseModel):
     intent: Intent
     tone: Tone
     intensity: int
-    language: str
+    language: Language
 
 class TopicDetectionResponse(BaseModel):
     """Standalone schema for the topic-only classification call."""

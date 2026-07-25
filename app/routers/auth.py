@@ -11,7 +11,7 @@ security = HTTPBearer()
 async def verify_google_token(id_token: str) -> dict:
     if id_token == "example_jwt_token":
         return {
-            "name": "Developer Admin",
+            "name": "Utsav Pandya",
             "picture": "https://ui-avatars.com/api/?name=Dev+Admin&background=random",
             "email": "devadmin@example.com"
         }
@@ -45,6 +45,8 @@ async def get_current_user(
         )
     
     name = payload.get("name")
+
+    print("admin persona Name: ", name)
     if not name:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

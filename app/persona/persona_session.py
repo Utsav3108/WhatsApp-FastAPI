@@ -1,9 +1,17 @@
 # app/persona/persona_session.py
-from app.brain.schemas import Intent, Tone, Topic, UserMessageMetaDataResponse
+from datetime import datetime, timezone, timedelta
+from app.brain.schemas import Intent, Tone, Topic, Language
 from app.brain.emotion_engine import EmotionEngine, clamp, CuriosityZone
 from typing import Dict, List, Optional
 from app.brain.context import BrainContext
 from app.brain.brain_component import BrainComponent
+
+
+# Maximum length of an auto-expiring block. Both triggers (arousal
+# threshold in compile_prompt(), violation count in register_violation())
+# use this SAME constant. Change this single value to adjust — no other
+# line needs to change.
+BLOCK_DURATION_HOURS: float = 1.0
 
 
 class PersonaSession(BrainComponent):
@@ -12,6 +20,9 @@ class PersonaSession(BrainComponent):
 
         self.summary = ""
         self.persona = name
+
+        self.languages = ["english"]
+
         # Built fresh from structured fields at load() time — never stored
         # as literal text. Empty until hydrated (see load()/_format_user_info
         # below); a session constructed directly (e.g. in tests) simply gets
@@ -62,6 +73,21 @@ class PersonaSession(BrainComponent):
         self.is_blocked = False
         self.block_reason: Optional[str] = None
         self.BLOCK_THRESHOLD = 100
+        self.blocked_until: Optional[datetime] = None
+
+        # Decay-calculation anchor. Defaults to "now" at construction time —
+        # correct for a brand-new session (nothing has decayed away from
+        # anything yet). load() overwrites this from the hydrated row when
+        # one exists.
+        self.last_emotional_update_at: datetime = datetime.now(timezone.utc)
+
+        # Set True by update()/register_violation() when they actually run
+        # this turn. Read by socketio_server.py to decide save()'s
+        # state_changed param. Defaults False because a PersonaSession is
+        # freshly constructed per message via load() (never cached across
+        # turns) — False correctly describes "nothing has mutated yet" at
+        # construction/hydration time.
+        self.turn_state_mutated: bool = False
 
     # --- Persistence boundary -------------------------------------------
     # update()/compile_prompt()/_apply()/register_violation() stay
@@ -151,21 +177,71 @@ class PersonaSession(BrainComponent):
             session.topic_repeat_streak = row.topic_repeat_streak
             session.turn_count = row.turn_count
             session.violation_count = row.violation_count
-            session.is_blocked = row.is_blocked
             session.block_reason = row.block_reason
+            session.last_emotional_update_at = row.last_emotional_update_at
+
+            # Both sides normalized to naive UTC before comparing/
+            # subtracting — SQLite drops tzinfo on read-back even for
+            # DateTime(timezone=True) columns (Postgres doesn't), so a raw
+            # aware-vs-naive comparison would raise under the SQLite-backed
+            # test suite. Both values are UTC either way (datetime.now(
+            # timezone.utc) here, func.now() at the DB level), so stripping
+            # tzinfo from both is a safe, consistent normalization.
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            row_blocked_until = row.blocked_until.replace(tzinfo=None) if row.blocked_until else None
+            row_last_emotional_update_at = row.last_emotional_update_at.replace(tzinfo=None)
+
+            if row_blocked_until is not None and row_blocked_until > now:
+                # Still genuinely blocked — freeze as stored, skip decay,
+                # return early. Brain.build()'s hard gate handles the rest
+                # of this turn.
+                session.blocked_until = row.blocked_until
+                session.is_blocked = True
+                return session
+
+            # Either never blocked, or the block window has elapsed (lazy
+            # auto-unblock) — not blocked going into this turn either way.
+            session.blocked_until = None
+            session.is_blocked = False
+            # block_reason intentionally left as-is — historical record of
+            # why it WAS blocked, not cleared on auto-unblock.
+
+            elapsed_hours = (now - row_last_emotional_update_at).total_seconds() / 3600.0
+            deltas = EmotionEngine.time_cooldown_delta(
+                arousal=session.arousal, mood=session.mood, patience=session.patience,
+                self_regulation=session.self_regulation,
+                threat_sensitivity=session.threat_sensitivity,
+                baseline_security=session.baseline_security,
+                elapsed_hours=elapsed_hours,
+            )
+            session._apply(deltas)
+            # rapport, curiosity, violation_count, turn_count,
+            # topic_repeat_streak, last_subject — untouched by decay,
+            # hydrated as-is above.
         # else: leave __init__'s baseline defaults in place, session_id
         # stays None until save() performs the initial INSERT.
 
         return session
 
-    async def save(self, db):
+    async def save(self, db, state_changed: bool = True):
         """
         INSERT if this is the first save for this pair, else UPDATE by id.
         updated_at is bumped automatically via onupdate=func.now() — no
         explicit set needed, and that's what makes most-recent-active fork
-        selection in load() work without extra bookkeeping.
+        selection in load() work without extra bookkeeping, regardless of
+        state_changed.
+
+        last_emotional_update_at is the decay-calculation anchor and must
+        NOT move just because a blocked/short-circuited turn poked this
+        session — only bump it when update()/register_violation() actually
+        mutated arousal/patience/mood this turn (state_changed=True, the
+        default). Pass state_changed=False for turns where that didn't
+        happen (e.g. pure identity creation, hard-gate short-circuit).
         """
         from app.persona import persona_session_crud
+
+        if state_changed:
+            self.last_emotional_update_at = datetime.now(timezone.utc)
 
         if self.session_id is None:
             new_row = await persona_session_crud.create_persona_session(
@@ -183,6 +259,8 @@ class PersonaSession(BrainComponent):
                 violation_count=self.violation_count,
                 is_blocked=self.is_blocked,
                 block_reason=self.block_reason,
+                blocked_until=self.blocked_until,
+                last_emotional_update_at=self.last_emotional_update_at,
             )
             self.session_id = new_row.id
         else:
@@ -200,6 +278,8 @@ class PersonaSession(BrainComponent):
                 violation_count=self.violation_count,
                 is_blocked=self.is_blocked,
                 block_reason=self.block_reason,
+                blocked_until=self.blocked_until,
+                last_emotional_update_at=self.last_emotional_update_at,
             )
 
     def _apply(self, deltas: dict):
@@ -213,6 +293,8 @@ class PersonaSession(BrainComponent):
             self.rapport = clamp(self.rapport + deltas["rapport"], 0.0, 100.0)
 
     def register_violation(self, topic: Topic):
+        self.turn_state_mutated = True
+
         deltas = EmotionEngine.content_violation_delta(self.patience, self.arousal)
         self._apply(deltas)
         self.mood = EmotionEngine.anger_mood_cap(self.arousal, self.mood)
@@ -224,6 +306,7 @@ class PersonaSession(BrainComponent):
         self.is_first_turn = False
 
         if self.violation_count >= self.VIOLATION_BLOCK_THRESHOLD:
+            self.blocked_until = datetime.now(timezone.utc) + timedelta(hours=BLOCK_DURATION_HOURS)
             self.is_blocked = True
             self.block_reason = "repeated_content_violations"
 
@@ -233,6 +316,7 @@ class PersonaSession(BrainComponent):
         intensity = float(context.metadata.intensity)
         topic = context.metadata.topic_domain
 
+        self.turn_state_mutated = True
         self.is_first_turn = (self.turn_count == 0)
         self.last_turn_context = None
 
@@ -254,7 +338,7 @@ class PersonaSession(BrainComponent):
         # Aggressive TONE with no competitive or genuine-attack framing
         # behind it — the only remaining path into plain hostility on tone
         # alone.
-        is_aggressive_tone_only = tone == Tone.AGGRESSIVE and not is_competitive and not is_genuine_attack
+        # is_aggressive_tone_only = tone == Tone.AGGRESSIVE and not is_competitive and not is_genuine_attack
 
         # `and not is_competitive` closes a leak in the naive formula:
         # without it, a competitive turn with sarcastic tone would force
@@ -266,7 +350,6 @@ class PersonaSession(BrainComponent):
         # it to competition_delta.
         is_hostile_turn = (
             is_genuine_attack
-            or is_aggressive_tone_only
             or (is_sarcasm_flavored and not is_playful_sarcasm)
         ) and not is_competitive
 
@@ -336,6 +419,7 @@ class PersonaSession(BrainComponent):
             return f"[{self.persona} is currently completely unresponsive. Refuse to engage entirely.]"
 
         if self.arousal >= self.BLOCK_THRESHOLD:
+            self.blocked_until = datetime.now(timezone.utc) + timedelta(hours=BLOCK_DURATION_HOURS)
             self.is_blocked = True
             self.block_reason = "arousal_threshold"
             return f"[{self.persona} is furious. Abruptly shut down the conversation and refuse to answer.]"

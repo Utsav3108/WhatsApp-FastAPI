@@ -282,7 +282,9 @@ async def handle_send_message(payload, db: AsyncSession, sid):
             human_persona_id=message_in.sender_id,
         )
         if persona_session.session_id is None:
-            await persona_session.save(db)
+            # Pure identity creation — Brain.build() hasn't run yet, so
+            # nothing has mutated arousal/patience/mood this turn.
+            await persona_session.save(db, state_changed=False)
         message_in.persona_session_id = persona_session.session_id
 
     # Save user's message
@@ -395,10 +397,16 @@ async def handle_gemini_response(message: schemas.MessageCreate, past_messages, 
                 if persona_session is not None:
                     # Persist this turn's mutated state (update()/
                     # compile_prompt() ran in-memory during PHASE 2, no DB
-                    # session held). Hard-gate turns (already-blocked
-                    # persona) still save so updated_at bumps and the
-                    # session stays ranked "most recent" for fork selection.
-                    await persona_session.save(db)
+                    # session held). turn_state_mutated is True only if
+                    # update()/register_violation() actually ran this turn
+                    # (normal turn, or harmful/sexual-content violation) —
+                    # False for the hard-gate short-circuit and the
+                    # language-check early return in Brain.build(), neither
+                    # of which touch arousal/patience/mood/curiosity.
+                    # updated_at still bumps unconditionally either way, so
+                    # a poked-but-untouched session still ranks correctly
+                    # as "most recent" for fork selection.
+                    await persona_session.save(db, state_changed=persona_session.turn_state_mutated)
 
                 is_session_active = True
                 if challenge and challenge_session_id:

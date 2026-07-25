@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select, update as sa_update
@@ -48,6 +49,8 @@ async def create_persona_session(
     violation_count: int,
     is_blocked: bool,
     block_reason: Optional[str],
+    blocked_until: Optional[datetime],
+    last_emotional_update_at: datetime,
 ) -> models.PersonaSessionModel:
     new_row = models.PersonaSessionModel(
         ai_persona_id=ai_persona_id,
@@ -63,6 +66,8 @@ async def create_persona_session(
         violation_count=violation_count,
         is_blocked=is_blocked,
         block_reason=block_reason,
+        blocked_until=blocked_until,
+        last_emotional_update_at=last_emotional_update_at,
     )
     db.add(new_row)
     await db.commit()
@@ -85,6 +90,8 @@ async def update_persona_session(
     violation_count: int,
     is_blocked: bool,
     block_reason: Optional[str],
+    blocked_until: Optional[datetime],
+    last_emotional_update_at: datetime,
 ) -> None:
     await db.execute(
         sa_update(models.PersonaSessionModel)
@@ -101,6 +108,8 @@ async def update_persona_session(
             violation_count=violation_count,
             is_blocked=is_blocked,
             block_reason=block_reason,
+            blocked_until=blocked_until,
+            last_emotional_update_at=last_emotional_update_at,
         )
     )
     await db.commit()

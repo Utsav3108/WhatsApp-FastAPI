@@ -104,6 +104,8 @@ class Persona(Base):
     role = Column(String, nullable=True)
     bio = Column(String, nullable=True)
     settings = Column(SafeJSON, nullable=True)
+    is_admin = Column(Boolean, nullable=False, server_default="false", default=False)
+    is_active = Column(Boolean, nullable=False, server_default="true", default=True)
 
 class PersonaSessionModel(Base):
     """
@@ -136,6 +138,19 @@ class PersonaSessionModel(Base):
     violation_count = Column(Integer, nullable=False, default=0)
     is_blocked = Column(Boolean, nullable=False, default=False)
     block_reason = Column(String, nullable=True)
+
+    blocked_until = Column(DateTime(timezone=True), nullable=True)
+    # NULL = not blocked. Non-null = blocked until this moment (auto-
+    # expiring — see BLOCK_DURATION_HOURS in persona_session.py). is_blocked
+    # above is kept as a real, separately-stored cached/convenience flag,
+    # not fully derived from this column at the DB level.
+
+    last_emotional_update_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # Bumped ONLY when update()/register_violation() actually mutate state
+    # this turn — NOT on the hard-gate short-circuit or other no-mutation
+    # early returns. This is the anchor decay math reads elapsed time
+    # against; deliberately separate from updated_at (fork-recency ordering
+    # only, bumped on every save() call regardless).
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -329,3 +344,23 @@ class AIContentReport(Base):
     message = relationship("Message")
     persona = relationship("Persona", foreign_keys=[persona_id])
     conversation = relationship("ChallengeSession", foreign_keys=[conversation_id])
+
+class AdminAuditLog(Base):
+    """
+    Attribution trail for admin-only actions (e.g. persona-session
+    reset-block, persona soft-delete). target_id is a plain string (not an
+    FK) since target_type discriminates which table it actually points at
+    (persona_session vs persona) — avoids two nullable FK columns for one
+    logical reference.
+    """
+    __tablename__ = "admin_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    admin_id = Column(Integer, ForeignKey("personas.id"), nullable=False, index=True)
+    action = Column(String, nullable=False)
+    target_type = Column(String, nullable=False)
+    target_id = Column(String, nullable=False, index=True)
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+    admin = relationship("Persona", foreign_keys=[admin_id])

@@ -8,7 +8,7 @@ from classifiers.language_classifiers import predict
 class MessageAnalysis():
 
     @staticmethod
-    async def _generate_message_metadata(previous_messages, text: str) -> MessageMetadataOnly:
+    async def _generate_message_metadata(previous_messages, text: str, known_languages: List[str]) -> MessageMetadataOnly:
         """
         Sends text to the model and returns intent, tone, intensity, and
         language ONLY. Topic is intentionally NOT this method's job anymore —
@@ -21,7 +21,12 @@ class MessageAnalysis():
         """
         system_prompt = (
             "You are an affective NLP parsing engine. Analyze the incoming user statement and "
-            "extract the language, primary structural intent, emotional tone, and numeric intensity score.\n\n"
+
+
+            f"Check whether question classifies in this list of languages : {known_languages} and "
+
+            "extract primary structural intent, emotional tone, and numeric intensity score.\n\n"
+
             "# PREVIOUS MESSAGES\n"
             f"{previous_messages}\n"
             "INTENSITY SCALING MATRIX:\n"
@@ -29,6 +34,7 @@ class MessageAnalysis():
             "- 21-50: Moderate emotional variance (clear annoyance, distinct preference, or active eagerness).\n"
             "- 51-80: High emotional expression (use of exclamation marks, intense phrasing, or overt hostility).\n"
             "- 81-100: Extreme or unhinged reactions (absolute rage, intense panic, or euphoric praise).\n"
+            "REFER # PREVIOUS MESSAGES for accurate Intent and tone classification."
         )
         from app.gemini import client
         response = await client.aio.models.generate_content(
@@ -123,7 +129,12 @@ class MessageAnalysis():
                 "temperature": 0.1
             }
         )
-        return TopicDetectionResponse.model_validate_json(response.text)
+
+        result = TopicDetectionResponse.model_validate_json(response.text)
+
+        print("Result:", result)
+
+        return result
 
     @staticmethod
     def _detect_language(text: str) -> str:
@@ -134,7 +145,7 @@ class MessageAnalysis():
         return max(result, key=result.get)
 
     @staticmethod
-    async def analyze(previous_messages, text: str, expertise_topics: List[str]) -> tuple[UserMessageMetaDataResponse, bool, str]:
+    async def analyze(previous_messages, text: str, expertise_topics: List[str], known_languages: List[str]) -> tuple[UserMessageMetaDataResponse, bool, str]:
         """
         Runs metadata classification (intent/tone/intensity/language) and
         topic classification concurrently as two fully independent Gemini
@@ -146,9 +157,11 @@ class MessageAnalysis():
         downstream-compiled shape, but the caller (Brain.build()) needs them
         directly to populate BrainContext.
         """
+        print("expertise : ", expertise_topics)
         metadata_task = MessageAnalysis._generate_message_metadata(
             previous_messages=previous_messages,
             text=text,
+            known_languages=known_languages
         )
         topic_task = MessageAnalysis._detect_topic(
             previous_messages=previous_messages,

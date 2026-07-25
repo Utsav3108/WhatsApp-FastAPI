@@ -41,7 +41,8 @@ Each test case spins up its own in-memory SQLite (`sqlite+aiosqlite:///:memory:`
 - `app/routers/*` — REST endpoints (auth, category, challenge, conversations, reports). `app/persona/persona_router.py` holds persona/profile endpoints (kept out of `routers/` for historical reasons).
 - `app/socketio_server.py` — **the live chat path.** REST message endpoints exist, but real-time send/receive, challenge lifecycle events, and all Gemini-triggered replies flow through Socket.IO events (`join`, `send_message`, `leave_chat`, `join_challenge`, `complete_challenge`). `app/websocket.py` is legacy/unused — don't build on it.
 - `app/services/*`, `app/persona/persona_service.py` — business logic between routers/socket handlers and the CRUD layer.
-- `app/crud.py`, `app/crud_challenge_attempt.py`, `app/models.py` — async SQLAlchemy 2.0 ORM (Postgres via `asyncpg`).
+- `app/admin/` — internal admin-only REST API (`/admin/*`), gated by `admin_auth.get_current_admin_user` (requires `Persona.is_admin`) on top of the normal Google-login auth. Covers `PersonaSession` inspection/reset-block and AI `Persona` roster CRUD (soft-delete via `Persona.is_active`); admin actions are attributed via the `admin_audit_logs` table (`admin_audit_crud.py`). `challenge_sessions` admin visibility is explicitly out of scope for now — see `app/claude_docs/Rippl Backend — Admin API Tasks.md`.
+- `app/crud.py`, `app/crud_challenge_attempt.py`, `app/crud_reports.py`, `app/persona/persona_crud.py`, `app/persona/persona_session_crud.py`, `app/admin/*_crud.py`, `app/models.py` — async SQLAlchemy 2.0 ORM (Postgres via `asyncpg`).
 - `app/cache.py` — Redis read-through cache for persona/challenge lookups (5 min TTL), explicitly invalidated on writes in the service layer.
 - `app/gemini.py` — all Gemini calls: persona chat replies (`ask_gemini`), challenge storyline generation, challenge win/lose evaluation (`evaluate_challenge`, structured JSON output), conversation summarization.
 

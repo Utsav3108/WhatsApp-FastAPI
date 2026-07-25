@@ -3,7 +3,7 @@ from app.persona.persona_session import PersonaSession
 from .brain_component import BrainComponent
 from .context import BrainContext
 from .response_style import ResponseStyle
-from .schemas import Topic
+from .schemas import Topic, Language
 
 
 class Brain:
@@ -23,7 +23,8 @@ class Brain:
         metadata, is_same_subject, subject_label = await MessageAnalysis.analyze(
             previous_messages=past_conversation,
             text=question,
-            expertise_topics=persona_session.expertise_topics
+            expertise_topics=persona_session.expertise_topics,
+            known_languages=persona_session.languages
         )
 
         print("Parsed Message Metadata:\n", metadata.model_dump_json(indent=2))
@@ -66,10 +67,10 @@ class Brain:
         )
 
         # 3. Language check
-        if context.metadata.language.lower() not in ["english", "en"]:
+        if context.metadata.language == Language.NOT_UNDERSTANDS:
             return (
                 f"In {persona_session.persona}'s manner, refuse to answer and "
-                "ask the user to only speak in English."
+                f"ask the user to only speak in {persona_session.languages}."
             )
 
         # 4. Register all brain components

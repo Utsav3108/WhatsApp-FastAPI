@@ -92,16 +92,5 @@ async def google_login(login_in: schemas.GoogleLoginRequest, db: AsyncSession = 
         )
         db_persona = await crud.create_persona(db, persona_in)
     else:
-        # Sync email and image if changed
-        updated = False
-        if db_persona.email != email:
-            db_persona.email = email
-            updated = True
-        if db_persona.image_url != image_url:
-            db_persona.image_url = image_url
-            updated = True
-        if updated:
-            db.add(db_persona)
-            await db.commit()
-            await db.refresh(db_persona)
+        db_persona = await crud.update_persona_contact_info(db, db_persona, email, image_url)
     return db_persona

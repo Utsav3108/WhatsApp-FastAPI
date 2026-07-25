@@ -219,6 +219,21 @@ async def create_persona(db: AsyncSession, persona: schemas.PersonaCreate):
     await db.refresh(db_persona)
     return db_persona
 
+async def update_persona_contact_info(db: AsyncSession, db_persona: models.Persona, email: str, image_url: str):
+    """Syncs email/image_url from an OAuth provider on login if they've changed. Returns True if a write happened."""
+    updated = False
+    if db_persona.email != email:
+        db_persona.email = email
+        updated = True
+    if db_persona.image_url != image_url:
+        db_persona.image_url = image_url
+        updated = True
+    if updated:
+        db.add(db_persona)
+        await db.commit()
+        await db.refresh(db_persona)
+    return db_persona
+
 async def update_user_profile(db: AsyncSession, user_id: int, profile_in: schemas.UserProfileUpdate):
     result = await db.execute(select(models.Persona).filter(models.Persona.id == user_id))
     db_persona = result.scalars().first()
@@ -553,6 +568,26 @@ async def get_challenge_session_by_id(db: AsyncSession, session_id: int):
         select(ChallengeSession).filter(ChallengeSession.id == session_id)
     )
     return result.scalars().first()
+
+async def get_active_challenge_sessions_by_user(db: AsyncSession, user_id: int, limit: int = 50, offset: int = 0):
+    result = await db.execute(
+        select(ChallengeSession)
+        .filter(ChallengeSession.user_id == user_id, ChallengeSession.status == "active")
+        .limit(limit)
+        .offset(offset)
+    )
+    return result.scalars().all()
+
+async def pause_challenge_session(db: AsyncSession, session: ChallengeSession):
+    from datetime import datetime, timezone
+    if session.status == 'active' and session.last_resumed_at:
+        now = datetime.now(timezone.utc)
+        delta = (now - session.last_resumed_at).total_seconds()
+        session.elapsed_seconds += int(delta)
+        session.last_resumed_at = None
+        await db.commit()
+        await db.refresh(session)
+    return session
 
 async def get_existing_session(db: AsyncSession, user_id: int, challenge_id: str):
     result = await db.execute(

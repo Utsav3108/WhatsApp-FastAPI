@@ -90,14 +90,7 @@ async def get_active_challenge_sessions(
     db: AsyncSession = Depends(get_db),
     current_user: models.Persona = Depends(get_current_user)
 ):
-    from sqlalchemy import select
-    stmt = select(models.ChallengeSession).filter(
-        models.ChallengeSession.user_id == current_user.id,
-        models.ChallengeSession.status == "active"
-    ).limit(limit).offset(offset)
-    res = await db.execute(stmt)
-    sessions = res.scalars().all()
-    return sessions
+    return await crud.get_active_challenge_sessions_by_user(db, current_user.id, limit=limit, offset=offset)
 
 @router.get("/challenges/dashboard", response_model=schemas.ChallengeDashboardResponse)
 async def get_challenges_dashboard(
@@ -114,20 +107,12 @@ async def pause_challenge_session(
     db: AsyncSession = Depends(get_db),
     current_user: models.Persona = Depends(get_current_user)
 ):
-    from datetime import datetime, timezone
     session = await crud.get_challenge_session_by_id(db, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Challenge session not found")
     if session.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Forbidden")
-    
-    if session.status == 'active' and session.last_resumed_at:
-        now = datetime.now(timezone.utc)
-        delta = (now - session.last_resumed_at).total_seconds()
-        session.elapsed_seconds += int(delta)
-        session.last_resumed_at = None
-        await db.commit()
-        await db.refresh(session)
-        
+
+    session = await crud.pause_challenge_session(db, session)
     return {"status": "success", "elapsed_seconds": session.elapsed_seconds}
 

@@ -6,7 +6,6 @@ import traceback
 from fastapi import Depends
 import socketio
 import asyncio
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import enums
@@ -22,7 +21,7 @@ from app.schemas import ChallengeCompletion
 from app.enums import ChallengeResult
 
 from app.services import message_service
-from app.persona import persona_service
+from app.persona import persona_service, persona_session_crud
 from app.persona.persona_session import PersonaSession
 
 
@@ -88,14 +87,9 @@ async def leave_chat(sid, data):
             # resolve the same most-recent session id for this pair so the
             # cancellation lookup actually matches.
             async with SessionLocal() as db:
-                result = await db.execute(
-                    select(crud.models.PersonaSessionModel.id)
-                    .where(crud.models.PersonaSessionModel.ai_persona_id == persona_id)
-                    .where(crud.models.PersonaSessionModel.human_persona_id == user_id)
-                    .order_by(crud.models.PersonaSessionModel.updated_at.desc())
-                    .limit(1)
+                persona_session_id = await persona_session_crud.get_latest_persona_session_id(
+                    db, ai_persona_id=persona_id, human_persona_id=user_id
                 )
-                persona_session_id = result.scalars().first()
             chat_key = f"user_{user_id}_persona_session_{persona_session_id}" if persona_session_id is not None else None
         else:
             chat_key = None
@@ -241,12 +235,7 @@ async def handle_send_message(payload, db: AsyncSession, sid):
     #     f"to persona {message_in.receiver_id}: {message_in.text}"
     # )
 
-    session_result = await db.execute(
-        select(crud.models.ChallengeSession).filter(
-            crud.models.ChallengeSession.id == message_in.challenge_session_id
-        )
-    )
-    challenge_session = session_result.scalars().first()
+    challenge_session = await crud.get_challenge_session_by_id(db, message_in.challenge_session_id)
 
     challenge = None
     if challenge_session:
@@ -413,12 +402,7 @@ async def handle_gemini_response(message: schemas.MessageCreate, past_messages, 
 
                 is_session_active = True
                 if challenge and challenge_session_id:
-                    session_res = await db.execute(
-                        select(crud.models.ChallengeSession).filter(
-                            crud.models.ChallengeSession.id == challenge_session_id
-                        )
-                    )
-                    session = session_res.scalars().first()
+                    session = await crud.get_challenge_session_by_id(db, challenge_session_id)
                     if session and session.status != 'active':
                         is_session_active = False
             except Exception:

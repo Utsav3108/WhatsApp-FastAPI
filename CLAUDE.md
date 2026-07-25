@@ -40,10 +40,28 @@ Each test case spins up its own in-memory SQLite (`sqlite+aiosqlite:///:memory:`
 - `app/main.py` — FastAPI app, CORS, mounts REST routers (all except `auth` behind `Depends(get_current_user)`) and the Socket.IO ASGI app.
 - `app/routers/*` — REST endpoints (auth, category, challenge, conversations, reports). `app/persona/persona_router.py` holds persona/profile endpoints (kept out of `routers/` for historical reasons).
 - `app/socketio_server.py` — **the live chat path.** REST message endpoints exist, but real-time send/receive, challenge lifecycle events, and all Gemini-triggered replies flow through Socket.IO events (`join`, `send_message`, `leave_chat`, `join_challenge`, `complete_challenge`). `app/websocket.py` is legacy/unused — don't build on it.
-- `app/services/*`, `app/persona/persona_service.py` — business logic between routers/socket handlers and `app/crud.py`.
+- `app/services/*`, `app/persona/persona_service.py` — business logic between routers/socket handlers and the CRUD layer.
 - `app/crud.py`, `app/crud_challenge_attempt.py`, `app/models.py` — async SQLAlchemy 2.0 ORM (Postgres via `asyncpg`).
 - `app/cache.py` — Redis read-through cache for persona/challenge lookups (5 min TTL), explicitly invalidated on writes in the service layer.
 - `app/gemini.py` — all Gemini calls: persona chat replies (`ask_gemini`), challenge storyline generation, challenge win/lose evaluation (`evaluate_challenge`, structured JSON output), conversation summarization.
+
+### Data access boundary (strict)
+
+All database access — every `select`, `insert`, `update`, `delete`, `session.execute`, `session.add`, `session.merge`, etc. — is only permitted inside a `crud`-designated file (e.g. `app/crud.py`, `app/crud_challenge_attempt.py`). This is a hard boundary between the service/logic layer and the database layer, not a loose convention, and it applies to every module going forward.
+
+- **Every module gets its own CRUD file — there is no single general-purpose CRUD file.** A module's CRUD file lives alongside that module's own code — e.g. persona CRUD belongs in `app/persona/` next to `persona_service.py` and `persona_router.py`, not appended to the top-level `app/crud.py`. `app/crud_challenge_attempt.py` is the existing precedent for this per-domain split; new modules (persona, persona sessions, etc.) follow the same pattern with their own dedicated CRUD file.
+- **Routers, `app/services/*.py`, `persona_service.py`, and `socketio_server.py` never construct or execute a query directly.** No `db.execute(select(...))`, no `session.add(...)`, no raw ORM query building inside a service, router, or socket handler — those calls only ever happen inside a CRUD file. Service-layer code calls a named CRUD function and works with what it returns.
+- If a new query is needed, add or extend a function in the relevant module's CRUD file and call it from the service layer — don't inline the query "just this once," even for something small.
+
+### Layer responsibilities & cache flow (per module)
+
+Each module (persona, persona session, challenge, etc.) keeps the same three-layer split, and each layer has one specific, non-overlapping job:
+
+1. **Database/CRUD layer** — the module's `crud` file, and only that file. Owns raw Postgres access (via `asyncpg`/SQLAlchemy) and returns raw ORM objects/rows. No cache logic, no Pydantic conversion — just fetch/persist.
+2. **Service layer** — owns the read path: check Redis first; on a cache hit, done. On a miss, call the module's CRUD layer to fetch from Postgres, convert the result into the module's Pydantic model, and return that model (populating the cache on the way out, consistent with the existing read-through pattern in `app/cache.py`). The service layer is the only place that knows about both the cache and the CRUD layer — it's the seam between them.
+3. **Presentation layer** — routers and Socket.IO handlers. Call a service-layer method and get a Pydantic model back; use it to respond to the client or drive further logic. Never touches the cache or the CRUD layer directly.
+
+This is the same DB/service separation from the section above, made explicit per layer so caching and Pydantic-conversion responsibility has one clear home (the service layer) instead of leaking into routers or socket handlers.
 
 ### The "Brain" (persona emotional engine) — `app/brain/`
 
@@ -192,3 +210,7 @@ Roleplay scenarios (`Challenge`/`ChallengeContext`/`ChallengeSession`/`Challenge
 
 ### Message send flow (Socket.IO)
 `send_message` → persists the user message → spawns a background `asyncio.Task` (`handle_gemini_response`), cancelling any prior in-flight task for the same `chat_key` so overlapping sends to the same chat can't race → DB sessions are opened only for brief read/write windows, with both Gemini calls made outside any open session → AI reply persisted and emitted via `receive_message` to the relevant room (`user:{id}` or `challenge:{session_id}`) → if in a challenge, `evaluate_challenge` runs and a terminal result triggers `complete_challenge`.
+
+## Keeping `/docs` in sync
+
+Any change to a REST route or a Socket.IO event — added, removed, or its request/response shape changed — must update the corresponding file(s) in `/docs` as part of the same change. Don't land an API or socket change without updating its doc alongside it.

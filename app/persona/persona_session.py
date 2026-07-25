@@ -115,9 +115,7 @@ class PersonaSession(BrainComponent):
         — falling back to __init__'s baseline-formula defaults if the pair
         has never talked before.
         """
-        from sqlalchemy import select
-        from app import models as db_models
-        from app.persona import persona_service
+        from app.persona import persona_service, persona_session_crud
 
         ai_persona = await persona_service.get_persona_by_id(db, ai_persona_id)
         human_persona = await persona_service.get_persona_by_id(db, human_persona_id)
@@ -138,16 +136,9 @@ class PersonaSession(BrainComponent):
         session.user_info = cls._format_user_info(human_persona)
 
         if persona_session_id is not None:
-            row = await db.get(db_models.PersonaSessionModel, persona_session_id)
+            row = await persona_session_crud.get_persona_session_by_id(db, persona_session_id)
         else:
-            result = await db.execute(
-                select(db_models.PersonaSessionModel)
-                .where(db_models.PersonaSessionModel.ai_persona_id == ai_persona_id)
-                .where(db_models.PersonaSessionModel.human_persona_id == human_persona_id)
-                .order_by(db_models.PersonaSessionModel.updated_at.desc())
-                .limit(1)
-            )
-            row = result.scalars().first()
+            row = await persona_session_crud.get_latest_persona_session(db, ai_persona_id, human_persona_id)
 
         if row is not None:
             session.session_id = row.id
@@ -174,11 +165,11 @@ class PersonaSession(BrainComponent):
         explicit set needed, and that's what makes most-recent-active fork
         selection in load() work without extra bookkeeping.
         """
-        from sqlalchemy import update as sa_update
-        from app import models as db_models
+        from app.persona import persona_session_crud
 
         if self.session_id is None:
-            new_row = db_models.PersonaSessionModel(
+            new_row = await persona_session_crud.create_persona_session(
+                db,
                 ai_persona_id=self.ai_persona_id,
                 human_persona_id=self.human_persona_id,
                 arousal=self.arousal,
@@ -193,29 +184,23 @@ class PersonaSession(BrainComponent):
                 is_blocked=self.is_blocked,
                 block_reason=self.block_reason,
             )
-            db.add(new_row)
-            await db.commit()
-            await db.refresh(new_row)
             self.session_id = new_row.id
         else:
-            await db.execute(
-                sa_update(db_models.PersonaSessionModel)
-                .where(db_models.PersonaSessionModel.id == self.session_id)
-                .values(
-                    arousal=self.arousal,
-                    patience=self.patience,
-                    mood=self.mood,
-                    rapport=self.rapport,
-                    curiosity=self.curiosity,
-                    last_subject=self.last_subject,
-                    topic_repeat_streak=self.topic_repeat_streak,
-                    turn_count=self.turn_count,
-                    violation_count=self.violation_count,
-                    is_blocked=self.is_blocked,
-                    block_reason=self.block_reason,
-                )
+            await persona_session_crud.update_persona_session(
+                db,
+                self.session_id,
+                arousal=self.arousal,
+                patience=self.patience,
+                mood=self.mood,
+                rapport=self.rapport,
+                curiosity=self.curiosity,
+                last_subject=self.last_subject,
+                topic_repeat_streak=self.topic_repeat_streak,
+                turn_count=self.turn_count,
+                violation_count=self.violation_count,
+                is_blocked=self.is_blocked,
+                block_reason=self.block_reason,
             )
-            await db.commit()
 
     def _apply(self, deltas: dict):
         if "arousal" in deltas:

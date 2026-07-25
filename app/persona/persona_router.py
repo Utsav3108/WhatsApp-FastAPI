@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import schemas, models
+from app import schemas, models, crud
 from app.database import get_db
 from app.services import message_service
 from app.routers.auth import get_current_user
-from app.persona import persona_service
+from app.persona import persona_service, persona_crud
 
 router = APIRouter(tags=["Persona"])
 
@@ -56,50 +56,24 @@ async def get_messages(
     all_messages = await message_service.get_messages_between_users(db, sender_id, receiver_id, limit, offset)
     return all_messages
 
-from sqlalchemy import select
-from app import crud
-
 @router.get("/profile", response_model=schemas.UserProfileResponse)
 async def get_user_profile(
     db: AsyncSession = Depends(get_db),
     current_user: models.Persona = Depends(get_current_user)
 ):
     # 1. Total challenges attempted & Success rate
-    stmt_attempts = select(models.ChallengeAttempt).filter(models.ChallengeAttempt.user_id == current_user.id)
-    res_attempts = await db.execute(stmt_attempts)
-    attempts = res_attempts.scalars().all()
+    attempts = await persona_crud.get_challenge_attempts_by_user(db, current_user.id)
     total_challenges_attempted = len(attempts)
-    
+
     total_wins = sum(1 for a in attempts if a.won)
     success_rate = (total_wins / total_challenges_attempted) * 100.0 if total_challenges_attempted > 0 else 0.0
-    
+
     # 2. Total practice sessions
-    sent_res = await db.execute(
-        select(models.Message.receiver_id)
-        .filter(models.Message.sender_id == current_user.id, models.Message.challenge_session_id == None)
-        .distinct()
-    )
-    received_res = await db.execute(
-        select(models.Message.sender_id)
-        .filter(models.Message.receiver_id == current_user.id, models.Message.challenge_session_id == None)
-        .distinct()
-    )
-    sent_to_personas = [row[0] for row in sent_res.all()]
-    received_from_personas = [row[0] for row in received_res.all()]
-    practice_persona_ids = list(set(sent_to_personas + received_from_personas))
+    practice_persona_ids = await persona_crud.get_practice_partner_persona_ids(db, current_user.id)
     total_practice_sessions = len(practice_persona_ids)
-    
+
     # 3. Attempt logs
-    stmt_log = (
-        select(models.ChallengeAttempt, models.Challenge.title, models.Persona.name)
-        .join(models.Challenge, models.ChallengeAttempt.challenge_id == models.Challenge.id)
-        .join(models.Persona, models.ChallengeAttempt.persona_id == models.Persona.id)
-        .filter(models.ChallengeAttempt.user_id == current_user.id)
-        .order_by(models.ChallengeAttempt.created_at.desc())
-        .limit(5)
-    )
-    res_log = await db.execute(stmt_log)
-    rows = res_log.all()
+    rows = await persona_crud.get_recent_attempts_log(db, current_user.id, limit=5)
     attempts_log = []
     for attempt, challenge_title, persona_name in rows:
         attempts_log.append(schemas.ProfileAttemptLogItem(
@@ -137,74 +111,10 @@ async def update_user_profile(
     updated_user = await crud.update_user_profile(db, current_user.id, profile_in)
     return updated_user
 
-from sqlalchemy import update, delete
-
 @router.delete("/profile")
 async def delete_user_profile(
     db: AsyncSession = Depends(get_db),
     current_user: models.Persona = Depends(get_current_user)
 ):
-    user_id = current_user.id
-
-    # 1. Null out selected_persona_id in challenges
-    await db.execute(
-        update(models.Challenge)
-        .where(models.Challenge.selected_persona_id == user_id)
-        .values(selected_persona_id=None)
-    )
-
-    # 2. Get message IDs and session IDs
-    res_sessions = await db.execute(
-        select(models.ChallengeSession.id).filter(models.ChallengeSession.user_id == user_id)
-    )
-    session_ids = [row[0] for row in res_sessions.all()]
-
-    res_messages = await db.execute(
-        select(models.Message.id).filter(
-            (models.Message.sender_id == user_id) | (models.Message.receiver_id == user_id)
-        )
-    )
-    message_ids = [row[0] for row in res_messages.all()]
-
-    # 3. Delete AI Content Reports
-    if message_ids:
-        await db.execute(
-            delete(models.AIContentReport).filter(models.AIContentReport.message_id.in_(message_ids))
-        )
-    if session_ids:
-        await db.execute(
-            delete(models.AIContentReport).filter(models.AIContentReport.conversation_id.in_(session_ids))
-        )
-    # Also delete reports created by/against the user persona directly
-    await db.execute(
-        delete(models.AIContentReport).filter(models.AIContentReport.persona_id == user_id)
-    )
-
-    # 4. Delete Challenge Attempts
-    await db.execute(
-        delete(models.ChallengeAttempt).filter(
-            (models.ChallengeAttempt.user_id == user_id) | (models.ChallengeAttempt.persona_id == user_id)
-        )
-    )
-
-    # 5. Delete Messages
-    await db.execute(
-        delete(models.Message).filter(
-            (models.Message.sender_id == user_id) | (models.Message.receiver_id == user_id)
-        )
-    )
-
-    # 6. Delete Challenge Sessions
-    await db.execute(
-        delete(models.ChallengeSession).filter(
-            (models.ChallengeSession.user_id == user_id) | (models.ChallengeSession.persona_id == user_id)
-        )
-    )
-
-    # 7. Finally delete the User Persona itself
-    await db.execute(
-        delete(models.Persona).filter(models.Persona.id == user_id)
-    )
-
-    await db.commit()
+    await persona_crud.delete_user_account_cascade(db, current_user.id)
     return {"message": "Account and all associated data deleted successfully."}

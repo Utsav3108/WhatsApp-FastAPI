@@ -67,7 +67,7 @@ class MessageAnalysis():
             # Only included conditionally — zero prompt cost/behavior change
             # for any persona without a cutoff date.
             cutoff_block = (
-                f"This persona's knowledge and life ends on 24-01-1965. "
+                f"This persona's knowledge and life ends on {knowledge_cutoff_date}. "
                 "Determine whether this message references, requires, or assumes "
                 "knowledge of anything — technology, real-world events, real people, "
                 "or the current status of anything — that occurred or came to exist "

@@ -12,7 +12,13 @@ async def get_latest_persona_session_id(db: AsyncSession, ai_persona_id: int, hu
         select(models.PersonaSessionModel.id)
         .where(models.PersonaSessionModel.ai_persona_id == ai_persona_id)
         .where(models.PersonaSessionModel.human_persona_id == human_persona_id)
-        .order_by(models.PersonaSessionModel.updated_at.desc())
+        # id.desc() as a tiebreaker: updated_at alone isn't strictly
+        # ordered — SQLite's func.now() has only second resolution, and
+        # even Postgres can tie under fast successive writes (e.g.
+        # PersonaSession.create_new() immediately followed by a load() for
+        # the same pair) — id.desc() deterministically favors the more
+        # recently inserted row instead of an arbitrary tie order.
+        .order_by(models.PersonaSessionModel.updated_at.desc(), models.PersonaSessionModel.id.desc())
         .limit(1)
     )
     return result.scalars().first()
@@ -27,7 +33,13 @@ async def get_latest_persona_session(db: AsyncSession, ai_persona_id: int, human
         select(models.PersonaSessionModel)
         .where(models.PersonaSessionModel.ai_persona_id == ai_persona_id)
         .where(models.PersonaSessionModel.human_persona_id == human_persona_id)
-        .order_by(models.PersonaSessionModel.updated_at.desc())
+        # id.desc() as a tiebreaker: updated_at alone isn't strictly
+        # ordered — SQLite's func.now() has only second resolution, and
+        # even Postgres can tie under fast successive writes (e.g.
+        # PersonaSession.create_new() immediately followed by a load() for
+        # the same pair) — id.desc() deterministically favors the more
+        # recently inserted row instead of an arbitrary tie order.
+        .order_by(models.PersonaSessionModel.updated_at.desc(), models.PersonaSessionModel.id.desc())
         .limit(1)
     )
     return result.scalars().first()

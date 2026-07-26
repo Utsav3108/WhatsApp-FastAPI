@@ -85,7 +85,17 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 
 ---
 
-### 6. Get Messages Between Users (Protected)
+### 6. Create New Persona Session (Protected)
+- **POST /persona-sessions/new**
+- **Description:** Explicitly starts a brand-new persona session (fork) with baseline emotional state for the given persona, ignoring any existing fork for the pair — including a currently-blocked one. Not needed for normal chat: `send_message` (Socket.IO) already creates a session lazily on a pair's first-ever message. Use this only for an explicit user-initiated fresh start, e.g. after receiving a `persona_blocked` Socket.IO event and the user chooses to start over rather than wait for `check_unblock_status` to clear. See `/docs/socketio_server_events.md` for the block/unblock event flow.
+- **Request Body:**
+  - `persona_id` (int): The AI persona to start a fresh session with.
+- **Response:**
+  - `200 OK`: `{ "persona_session_id": int }` — the new session's ID. The new fork immediately becomes the active session for this pair; subsequent messages to this persona will use it.
+
+---
+
+### 7. Get Messages Between Users (Protected)
 - **GET /messages**
 - **Description:** Retrieve chat history between the current user and another persona.
 - **Query Parameters:**
@@ -107,7 +117,7 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 
 ---
 
-### 7. Get All Challenges (Protected)
+### 8. Get All Challenges (Protected)
 - **GET /challenges**
 - **Description:** Get a list of all active challenges, each with its associated configuration and story context.
 - **Response:**
@@ -140,7 +150,7 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 
 ---
 
-### 8. Create or Update Challenge (Protected)
+### 9. Create or Update Challenge (Protected)
 - **POST /challenges**
 - **Description:** Create a new challenge configuration or update an existing one.
 - **Request Body:** ChallengeCreate object
@@ -149,7 +159,7 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 
 ---
 
-### 9. Setup Challenge (Protected)
+### 10. Setup Challenge (Protected)
 - **POST /setup_challenge**
 - **Description:** Start or resume a challenge session with a selected AI persona. If a session is active, returns the existing context; otherwise, assigns the persona and generates the starting storyline.
 - **Request Body:**
@@ -171,7 +181,7 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 
 ---
 
-### 10. Get Challenge Attempts (Protected)
+### 11. Get Challenge Attempts (Protected)
 - **GET /challenge-attempts/{challenge_id}**
 - **Description:** Get the attempt history of the **currently authenticated user** for the specified challenge. Attempts by other users are excluded.
 - **Path Parameter:**

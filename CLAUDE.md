@@ -215,3 +215,7 @@ Roleplay scenarios (`Challenge`/`ChallengeContext`/`ChallengeSession`/`Challenge
 ## Keeping `/docs` in sync
 
 Any change to a REST route or a Socket.IO event — added, removed, or its request/response shape changed — must update the corresponding file(s) in `/docs` as part of the same change. Don't land an API or socket change without updating its doc alongside it.
+
+## Reporting frontend-affecting changes
+
+This repo is backend-only; the Flutter mobile app lives elsewhere. Any change here that the mobile team needs to act on — a new REST route or Socket.IO event, a changed request/response shape, a new client-side integration required (e.g. a new field to track, a new event to listen for) — must be written up as a task doc in `/front-end/todo/` as part of the same change, in addition to (not instead of) the `/docs` update above. Use a `TASK_snake_case_description.md` filename. Write it for a reader with no backend context: state what changed, the exact new/changed payload shapes, and what the client concretely needs to do differently — don't assume familiarity with this codebase's internals.

@@ -142,6 +142,35 @@ class TestPersonaSessionPersistence(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(reloaded_a.arousal, 77.0, places=2)
         self.assertAlmostEqual(reloaded_b.arousal, 12.0, places=2)
 
+    async def test_create_new_gives_baseline_state_ignoring_existing_fork(self):
+        existing = await PersonaSession.load(self.db, AI_ID, HUMAN_ID)
+        existing.arousal = 95.0
+        existing.is_blocked = True
+        existing.block_reason = "arousal_threshold"
+        await existing.save(self.db)
+
+        fresh = await PersonaSession.create_new(self.db, AI_ID, HUMAN_ID)
+
+        self.assertIsNotNone(fresh.session_id)
+        self.assertNotEqual(fresh.session_id, existing.session_id)
+        self.assertFalse(fresh.is_blocked)
+        # Baseline formula from __init__, not the blocked fork's 95.0.
+        self.assertEqual(fresh.arousal, max(0.0, 30.0 - (fresh.baseline_security / 4.0)))
+        # Traits/expertise still correctly hydrated from the persona pair.
+        self.assertEqual(fresh.threat_sensitivity, 20.0)
+        self.assertEqual(fresh.expertise_topics, ["cooking", "wine"])
+
+    async def test_create_new_becomes_the_latest_fork_for_future_loads(self):
+        old = await PersonaSession.load(self.db, AI_ID, HUMAN_ID)
+        old.arousal = 60.0
+        await old.save(self.db)
+
+        fresh = await PersonaSession.create_new(self.db, AI_ID, HUMAN_ID)
+
+        reloaded = await PersonaSession.load(self.db, AI_ID, HUMAN_ID)
+        self.assertEqual(reloaded.session_id, fresh.session_id)
+        self.assertNotEqual(reloaded.session_id, old.session_id)
+
 
 if __name__ == "__main__":
     unittest.main()

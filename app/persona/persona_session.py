@@ -144,16 +144,15 @@ class PersonaSession(BrainComponent):
         return "\n".join(lines)
 
     @classmethod
-    async def load(cls, db, ai_persona_id: int, human_persona_id: int,
-                    persona_session_id: Optional[int] = None) -> "PersonaSession":
+    async def _baseline(cls, db, ai_persona_id: int, human_persona_id: int) -> "PersonaSession":
         """
-        Hydrates a PersonaSession from the most-recently-updated
-        persona_sessions row for (ai_persona_id, human_persona_id) — or a
-        specific row if persona_session_id (an explicit fork pick) is given
-        — falling back to __init__'s baseline-formula defaults if the pair
-        has never talked before.
+        Builds a freshly-constructed, un-hydrated PersonaSession from a
+        persona pair's traits/identity — the shared first half of load()
+        (which then hydrates it from an existing row below) and
+        create_new() (which persists it exactly as-is, deliberately
+        skipping hydration for a genuine fresh start).
         """
-        from app.persona import persona_service, persona_session_crud
+        from app.persona import persona_service
 
         ai_persona = await persona_service.get_persona_by_id(db, ai_persona_id)
         human_persona = await persona_service.get_persona_by_id(db, human_persona_id)
@@ -179,6 +178,21 @@ class PersonaSession(BrainComponent):
         session.ai_persona_id = ai_persona_id
         session.human_persona_id = human_persona_id
         session.user_info = cls._format_user_info(human_persona)
+        return session
+
+    @classmethod
+    async def load(cls, db, ai_persona_id: int, human_persona_id: int,
+                    persona_session_id: Optional[int] = None) -> "PersonaSession":
+        """
+        Hydrates a PersonaSession from the most-recently-updated
+        persona_sessions row for (ai_persona_id, human_persona_id) — or a
+        specific row if persona_session_id (an explicit fork pick) is given
+        — falling back to __init__'s baseline-formula defaults if the pair
+        has never talked before.
+        """
+        from app.persona import persona_session_crud
+
+        session = await cls._baseline(db, ai_persona_id, human_persona_id)
 
         if persona_session_id is not None:
             row = await persona_session_crud.get_persona_session_by_id(db, persona_session_id)
@@ -240,6 +254,27 @@ class PersonaSession(BrainComponent):
         # else: leave __init__'s baseline defaults in place, session_id
         # stays None until save() performs the initial INSERT.
 
+        return session
+
+    @classmethod
+    async def create_new(cls, db, ai_persona_id: int, human_persona_id: int) -> "PersonaSession":
+        """
+        Always starts a brand-new fork with baseline emotional state,
+        regardless of any existing session for this pair — including a
+        currently-blocked one. Unlike load(), which resolves/hydrates the
+        latest existing fork, this ignores prior forks entirely. For an
+        explicit client-requested fresh start (e.g. the active fork is
+        blocked and the user wants to begin again).
+
+        Saved immediately so the returned session has a real session_id;
+        since save() INSERTs with a fresh updated_at, this new row becomes
+        the "latest" fork picked up by the next no-persona_session_id
+        load() call for this pair — it genuinely replaces the old fork as
+        the active conversation going forward, it doesn't just sit
+        alongside it inertly.
+        """
+        session = await cls._baseline(db, ai_persona_id, human_persona_id)
+        await session.save(db, state_changed=False)
         return session
 
     async def save(self, db, state_changed: bool = True):

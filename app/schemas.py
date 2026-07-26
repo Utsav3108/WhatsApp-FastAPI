@@ -188,6 +188,13 @@ class MessageResponse(MessageCreate):
         from_attributes = True
 
 
+class PersonaSessionCreateRequest(BaseModel):
+    persona_id: int  # the AI persona to start a fresh session with
+
+
+class PersonaSessionCreateResponse(BaseModel):
+    persona_session_id: int
+
 
 
 # Challenge schemas

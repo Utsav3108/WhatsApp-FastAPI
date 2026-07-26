@@ -6,6 +6,7 @@ from app.database import get_db
 from app.services import message_service
 from app.routers.auth import get_current_user
 from app.persona import persona_service, persona_crud
+from app.persona.persona_session import PersonaSession
 
 router = APIRouter(tags=["Persona"])
 
@@ -41,6 +42,24 @@ async def get_personas_user_chatted_with(
         raise HTTPException(status_code=403, detail="Forbidden: Cannot access other user's chat history")
     response = await persona_service.get_personas_user_chatted_with(db, user_id, limit=limit, offset=offset)
     return response
+
+@router.post("/persona-sessions/new", response_model=schemas.PersonaSessionCreateResponse)
+async def create_new_persona_session(
+    payload: schemas.PersonaSessionCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
+):
+    """
+    Explicitly starts a brand-new persona session (fork) with baseline
+    emotional state for (payload.persona_id, current_user.id) — ignoring
+    any existing fork for that pair, including a currently-blocked one.
+    Normal chat never needs this: send_message already creates a session
+    lazily on a pair's first-ever message. This exists for an explicit
+    client-initiated fresh start (e.g. the active fork is blocked and the
+    user wants to begin again).
+    """
+    session = await PersonaSession.create_new(db, ai_persona_id=payload.persona_id, human_persona_id=current_user.id)
+    return schemas.PersonaSessionCreateResponse(persona_session_id=session.session_id)
 
 @router.get("/messages", response_model=list[schemas.MessageResponse])
 async def get_messages(

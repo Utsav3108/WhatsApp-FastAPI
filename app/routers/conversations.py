@@ -18,6 +18,7 @@ async def get_conversations(
     receiver_id: int | None = Query(default=None, description="Receiver persona ID (persona chat)"),
     challenge_session_id: int | None = Query(default=None, description="Challenge session ID"),
     attempt_session_id: int | None = Query(default=None, description="Past attempt session ID (read-only history)"),
+    persona_session_id: int | None = Query(default=None, description="Persona session ID (a specific fork of a persona chat)"),
     db: AsyncSession = Depends(get_db),
     current_user: models.Persona = Depends(get_current_user),
 ):
@@ -32,6 +33,11 @@ async def get_conversations(
         messages, total_count = await crud.get_messages_paginated_by_session(
             db, challenge_session_id=challenge_session_id, page=page, page_size=page_size
         )
+    elif persona_session_id is not None:
+        messages, total_count = await crud.get_messages_paginated_by_persona_session_id(
+            db, persona_session_id=persona_session_id, requesting_user_id=current_user.id,
+            page=page, page_size=page_size,
+        )
     elif sender_id is not None and receiver_id is not None:
         if current_user.id not in (sender_id, receiver_id):
             raise HTTPException(status_code=403, detail="Forbidden: You are not a participant in this conversation.")
@@ -43,6 +49,7 @@ async def get_conversations(
             status_code=422,
             detail=(
                 "Provide one of: (sender_id + receiver_id) for persona chat, "
+                "persona_session_id for a specific fork of a persona chat, "
                 "challenge_session_id for an ongoing session, "
                 "or attempt_session_id for a past attempt."
             ),

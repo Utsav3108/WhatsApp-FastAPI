@@ -114,10 +114,36 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 - `text` (string)
 - `image_object_name` (string, optional)
 - `challenge_session_id` (int, optional)
+- `persona_session_id` (int, optional): The persona session (fork) this message belongs to. Set for regular persona chat, `null` for challenge messages.
 
 ---
 
-### 8. Get All Challenges (Protected)
+### 8. Get Conversations (Paginated) (Protected)
+- **GET /conversations**
+- **Description:** Paginated message history. Exactly one of the four discriminators below must be provided; the endpoint returns `422 Unprocessable Entity` if none is given. Ordered chronologically (oldest first within the page).
+- **Query Parameters:**
+  - `page` (int, optional, default=1, min=1): Page number, 1-indexed.
+  - `page_size` (int, optional, default=10, min=1, max=100): Messages per page.
+  - `sender_id` + `receiver_id` (int, both required together): All regular persona-chat messages between this pair, across every `persona_session_id` fork mixed together. `current_user.id` must be one of the two, or `403 Forbidden`.
+  - `persona_session_id` (int): Messages for one specific fork of a persona chat only — use this instead of `sender_id`/`receiver_id` to see just the active (or a specific past) session's history, e.g. after starting a fresh session via `POST /persona-sessions/new` (endpoint 6). Scoped to the requesting user automatically (must be sender or receiver on the matching rows); a non-participant querying another user's `persona_session_id` gets an empty page back, not an error.
+  - `challenge_session_id` (int): Messages for an ongoing challenge session.
+  - `attempt_session_id` (int): Messages for a past completed challenge attempt (same underlying lookup as `challenge_session_id`).
+- **Response:**
+  - `200 OK`: [Paginated Messages Response](#paginated-messages-response-object).
+  - `403 Forbidden`: If using `sender_id`/`receiver_id` and `current_user.id` is neither.
+  - `422 Unprocessable Entity`: If none of the four discriminators is provided.
+
+#### Paginated Messages Response Object
+- `messages` (array of [Message Objects](#message-object))
+- `page` (int)
+- `page_size` (int)
+- `total_count` (int)
+- `total_pages` (int)
+- `has_more` (bool)
+
+---
+
+### 9. Get All Challenges (Protected)
 - **GET /challenges**
 - **Description:** Get a list of all active challenges, each with its associated configuration and story context.
 - **Response:**
@@ -150,7 +176,7 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 
 ---
 
-### 9. Create or Update Challenge (Protected)
+### 10. Create or Update Challenge (Protected)
 - **POST /challenges**
 - **Description:** Create a new challenge configuration or update an existing one.
 - **Request Body:** ChallengeCreate object
@@ -159,7 +185,7 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 
 ---
 
-### 10. Setup Challenge (Protected)
+### 11. Setup Challenge (Protected)
 - **POST /setup_challenge**
 - **Description:** Start or resume a challenge session with a selected AI persona. If a session is active, returns the existing context; otherwise, assigns the persona and generates the starting storyline.
 - **Request Body:**
@@ -181,7 +207,7 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 
 ---
 
-### 11. Get Challenge Attempts (Protected)
+### 12. Get Challenge Attempts (Protected)
 - **GET /challenge-attempts/{challenge_id}**
 - **Description:** Get the attempt history of the **currently authenticated user** for the specified challenge. Attempts by other users are excluded.
 - **Path Parameter:**

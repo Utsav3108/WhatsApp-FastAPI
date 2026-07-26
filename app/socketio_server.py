@@ -327,18 +327,15 @@ async def handle_send_message(payload, db: AsyncSession, sid):
         past_messages = [m for m in db_history if m.id != message.id]
 
     else:
-        # Fetch last 11 messages (10 history + current user message)
-        db_msgs = await crud.get_messages_between_users(
-            db,
-            message.sender_id,
-            message.receiver_id,
-            limit=11
+        # Fetch last 11 messages (10 history + current user message), scoped
+        # to this persona_session (fork) rather than the raw sender/receiver
+        # pair — so history from a different fork (e.g. a blocked session
+        # the user started fresh from via PersonaSession.create_new()) never
+        # leaks into this fork's Gemini context.
+        past_messages = await message_service.get_messages_by_persona_session_id(
+            db, persona_session.session_id, limit=11
         )
-        past_messages = [
-            schemas.MessageResponse.model_validate(m)
-            for m in db_msgs
-            if m.id != message.id
-        ]
+        past_messages = [m for m in past_messages if m.id != message.id]
 
     # Build the chat_key so we can track the background task. Keying on the
     # resolved persona_session id (rather than the old receiver_id-based

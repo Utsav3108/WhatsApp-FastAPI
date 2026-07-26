@@ -2,7 +2,7 @@
 
 ## Context
 
-The backend has three pieces of behavior the mobile app doesn't currently
+The backend has four pieces of behavior the mobile app doesn't currently
 integrate with:
 
 1. **Persona sessions** — every AI conversation has server-side emotional
@@ -24,10 +24,16 @@ integrate with:
    to explicitly start a brand-new session with a persona (e.g. so the
    user can "start over" after getting blocked, instead of waiting for
    the block to expire). A new REST endpoint fixes this.
+4. **Filtering conversation history by fork** — `GET /conversations`
+   previously had no way to fetch just one persona-session's ("fork's")
+   history; querying by `sender_id`/`receiver_id` always mixed every fork
+   for that pair together. A new query param fixes this, and a related
+   internal bug (the AI's own conversational memory leaking across forks)
+   is now also fixed.
 
-Parts 1–2 are Socket.IO only. Part 3 is a new REST endpoint. Full
-technical reference: `/app/docs/socketio_server_events.md` (Connection +
-Messaging Events) and `/app/docs/API_DOC.md` (endpoint 6) in the backend
+Parts 1–2 are Socket.IO only. Parts 3–4 are REST changes. Full technical
+reference: `/app/docs/socketio_server_events.md` (Connection + Messaging
+Events) and `/app/docs/API_DOC.md` (endpoints 6 and 8) in the backend
 repo. This doc is the Flutter-side integration guide for the same change.
 
 ---
@@ -185,6 +191,41 @@ session isn't blocked from the moment it's created).
 
 ---
 
+## Part 4 — Filtering conversation history by persona_session_id
+
+**New query param on `GET /conversations`: `persona_session_id`.**
+Previously this endpoint only supported filtering by `sender_id` +
+`receiver_id`, which returns messages from every fork of that pair mixed
+together — including old, blocked forks. Now you can pass
+`persona_session_id` instead to get exactly one fork's history:
+
+```
+GET /conversations?persona_session_id=5190&page=1&page_size=20
+```
+
+Same response shape as before (`PaginatedMessagesResponse` —
+`messages`/`page`/`page_size`/`total_count`/`total_pages`/`has_more`).
+Ownership is enforced automatically (you must be sender or receiver on
+the matching messages); querying a `persona_session_id` you're not part
+of returns an empty page, not an error.
+
+**Why this matters for the "start fresh" flow (Part 3):** if the app
+displays chat history by querying `sender_id`+`receiver_id` (the old way),
+starting a fresh session doesn't actually give the user a clean-looking
+chat screen — the old fork's messages are still mixed in. After calling
+`POST /persona-sessions/new`, switch to querying history with the new
+`persona_session_id` from that response instead, so the chat screen
+genuinely starts empty.
+
+**Also fixed server-side (nothing to build, just worth knowing):** the
+AI's own conversational memory (what it "remembers" when generating a
+reply) previously had the same leak — it wasn't scoped to the active
+fork either. This is now fixed on the backend, so a fresh session is
+guaranteed to behave as a genuinely blank slate for the AI too, not just
+in the UI.
+
+---
+
 ## Event/endpoint summary
 
 | Event / Endpoint | Direction | When |
@@ -193,6 +234,7 @@ session isn't blocked from the moment it's created).
 | `check_unblock_status` | Socket.IO, client → server | App-initiated poll while a persona is known-blocked |
 | `persona_unblocked` | Socket.IO, server → client (private, requester only) | In response to `check_unblock_status`, only if no longer blocked |
 | `POST /persona-sessions/new` | REST | User explicitly chooses to start a fresh session (e.g. instead of waiting out a block) |
+| `GET /conversations?persona_session_id=...` | REST | Fetching history for one specific fork instead of a whole pair |
 
 ---
 
@@ -206,3 +248,5 @@ session isn't blocked from the moment it's created).
 - [ ] Confirm `persona_unblocked` does NOT arrive on a second device/session logged into the same account that didn't itself send `check_unblock_status` (it's private, not broadcast).
 - [ ] While blocked, call `POST /persona-sessions/new` and confirm the response returns a different `persona_session_id` than the blocked one, and that sending a new message to that persona now gets a normal (non-blocked) reply.
 - [ ] After calling `POST /persona-sessions/new`, confirm the persona's emotional "feel" is genuinely reset (e.g. a previously-heated conversation now starts calm) rather than carrying over the old session's state.
+- [ ] Call `GET /conversations?persona_session_id=<id>` for a fork and confirm only that fork's messages come back, not messages from a different fork of the same persona/user pair.
+- [ ] After `POST /persona-sessions/new`, confirm `GET /conversations?persona_session_id=<new_id>` returns an empty/near-empty history (not the old fork's messages), and that the AI's replies in the new fork show no awareness of anything only discussed in the old fork.

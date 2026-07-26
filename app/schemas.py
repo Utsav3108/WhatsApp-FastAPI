@@ -278,12 +278,14 @@ class ChallengeSetupResponse(BaseModel):
 
 class ConversationRequest(BaseModel):
     """Discriminated by which optional fields are present:
-    - sender_id + receiver_id  → persona-to-persona chat
+    - sender_id + receiver_id  → persona-to-persona chat (all forks mixed)
+    - persona_session_id       → one specific fork of a persona chat
     - challenge_session_id      → ongoing challenge session
     - attempt_session_id        → past completed challenge (treated as challenge_session_id)
     """
     sender_id: Optional[int] = None
     receiver_id: Optional[int] = None
+    persona_session_id: Optional[int] = None
     challenge_session_id: Optional[int] = None
     attempt_session_id: Optional[int] = None
 

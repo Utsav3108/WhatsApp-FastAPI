@@ -54,6 +54,20 @@ async def get_messages_by_challenge_session_id(db: AsyncSession, challenge_sessi
     messages.reverse()
     return messages
 
+async def get_messages_by_persona_session_id(db: AsyncSession, persona_session_id: int, limit: int | None = 10):
+    stmt = select(models.Message).filter(
+        models.Message.persona_session_id == persona_session_id
+    ).order_by(models.Message.timestamp.desc())
+
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
+    result = await db.execute(stmt)
+    messages = result.scalars().all()
+    # Reverse to return in chronological order
+    messages.reverse()
+    return messages
+
 async def get_messages_paginated_by_session(
     db: AsyncSession,
     challenge_session_id: int,
@@ -92,6 +106,44 @@ async def get_messages_paginated_between_users(
             ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))
         ) &
         (models.Message.challenge_session_id == None)
+    )
+    offset = (page - 1) * page_size
+
+    total_result = await db.execute(select(func.count(models.Message.id)).filter(base_filter))
+    total_count = total_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.Message)
+        .filter(base_filter)
+        .order_by(models.Message.timestamp.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    messages = result.scalars().all()
+    messages.reverse()
+    return messages, total_count
+
+async def get_messages_paginated_by_persona_session_id(
+    db: AsyncSession,
+    persona_session_id: int,
+    requesting_user_id: int,
+    page: int = 1,
+    page_size: int = 10,
+) -> tuple[list, int]:
+    """
+    Paginated fetch scoped to one specific persona_session (fork) — unlike
+    get_messages_paginated_between_users, which returns every fork for a
+    pair mixed together. requesting_user_id is folded directly into the
+    filter (must be sender or receiver on the matching rows) rather than a
+    separate ownership lookup, so a non-participant querying someone
+    else's persona_session_id just gets an empty page back.
+    """
+    base_filter = (
+        (models.Message.persona_session_id == persona_session_id) &
+        (
+            (models.Message.sender_id == requesting_user_id) |
+            (models.Message.receiver_id == requesting_user_id)
+        )
     )
     offset = (page - 1) * page_size
 

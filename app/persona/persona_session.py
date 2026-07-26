@@ -11,8 +11,8 @@ from app.brain.brain_component import BrainComponent
 # threshold in compile_prompt(), violation count in register_violation())
 # use this SAME constant. Change this single value to adjust — no other
 # line needs to change.
-BLOCK_DURATION_HOURS: float = 1.0
-
+BLOCK_DURATION_HOURS: float = 0.01
+ELAPSED_TIME_DECAY: float = 3600
 
 class PersonaSession(BrainComponent):
     def __init__(self, name: str, traits: Dict[str, float], expertise_topics: Optional[List[str]] = None,
@@ -239,7 +239,7 @@ class PersonaSession(BrainComponent):
             # block_reason intentionally left as-is — historical record of
             # why it WAS blocked, not cleared on auto-unblock.
 
-            elapsed_hours = (now - row_last_emotional_update_at).total_seconds() / 3600.0
+            elapsed_hours = (now - row_last_emotional_update_at).total_seconds() / ELAPSED_TIME_DECAY
             deltas = EmotionEngine.time_cooldown_delta(
                 arousal=session.arousal, mood=session.mood, patience=session.patience,
                 self_regulation=session.self_regulation,

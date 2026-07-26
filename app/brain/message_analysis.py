@@ -1,5 +1,5 @@
 import asyncio
-from typing import List
+from typing import List, Optional
 from .schemas import UserMessageMetaDataResponse, MessageMetadataOnly, TopicDetectionResponse
 
 from classifiers.language_classifiers import predict
@@ -50,7 +50,8 @@ class MessageAnalysis():
         return MessageMetadataOnly.model_validate_json(response.text)
 
     @staticmethod
-    async def _detect_topic(previous_messages, text: str, expertise_topics: List[str]) -> TopicDetectionResponse:
+    async def _detect_topic(previous_messages, text: str, expertise_topics: List[str],
+                             knowledge_cutoff_date: Optional[str] = None) -> TopicDetectionResponse:
         """
         Sends text to the model and returns the full topic classification —
         domain bucket, a free-text subject label, and the same-subject
@@ -61,6 +62,27 @@ class MessageAnalysis():
         """
         domains_list = ", ".join(expertise_topics) if expertise_topics else "(none specified)"
 
+        cutoff_block = ""
+        if knowledge_cutoff_date:
+            # Only included conditionally — zero prompt cost/behavior change
+            # for any persona without a cutoff date.
+            cutoff_block = (
+                f"This persona's knowledge and life ends on 24-01-1965. "
+                "Determine whether this message references, requires, or assumes "
+                "knowledge of anything — technology, real-world events, real people, "
+                "or the current status of anything — that occurred or came to exist "
+                "AFTER that date, even if the general subject (e.g. politics) is "
+                "squarely within their historical expertise. Example: 'What do you "
+                "think of TikTok?' requires post-cutoff knowledge even though social "
+                "commentary was their domain. 'What did you think of the Yalta "
+                "Conference?' does not, since that predates the cutoff. This applies "
+                "only to knowledge the PERSONA would need to produce themselves — if "
+                "the user is instead telling/informing the persona about something "
+                "post-cutoff (not asking the persona to know or produce it), that is "
+                "NOT post-cutoff knowledge being required of the persona. Set "
+                "requires_post_cutoff_knowledge accordingly.\n\n"
+            )
+
         system_prompt = (
             "You are a topic-domain classification engine. Analyze the incoming user "
             "statement and determine BOTH its topic domain and whether it continues the "
@@ -68,6 +90,7 @@ class MessageAnalysis():
             "# PREVIOUS MESSAGES\n"
             f"{previous_messages}\n"
             f"This persona's expertise: {domains_list}.\n\n"
+            f"{cutoff_block}"
             "CRITICAL DISAMBIGUATION RULE — PERSONAL vs. DOMAIN TOPICS:\n"
             "A question about the PERSONA'S OWN individual habits, preferences, belongings, or "
             "attributes is PERSONAL — even when it uses a word that sounds like a domain topic. "
@@ -145,17 +168,18 @@ class MessageAnalysis():
         return max(result, key=result.get)
 
     @staticmethod
-    async def analyze(previous_messages, text: str, expertise_topics: List[str], known_languages: List[str]) -> tuple[UserMessageMetaDataResponse, bool, str]:
+    async def analyze(previous_messages, text: str, expertise_topics: List[str], known_languages: List[str],
+                       knowledge_cutoff_date: Optional[str] = None) -> tuple[UserMessageMetaDataResponse, bool, str, bool]:
         """
         Runs metadata classification (intent/tone/intensity/language) and
         topic classification concurrently as two fully independent Gemini
         calls — neither waits on the other. Only combines and returns once
         BOTH have completed.
 
-        Returns (metadata_response, is_same_subject, subject_label) —
-        is_same_subject/subject_label aren't part of UserMessageMetaDataResponse's
-        downstream-compiled shape, but the caller (Brain.build()) needs them
-        directly to populate BrainContext.
+        Returns (metadata_response, is_same_subject, subject_label,
+        requires_post_cutoff_knowledge) — none of the last three are part of
+        UserMessageMetaDataResponse's downstream-compiled shape, but the
+        caller (Brain.build()) needs them directly to populate BrainContext.
         """
         print("expertise : ", expertise_topics)
         metadata_task = MessageAnalysis._generate_message_metadata(
@@ -167,6 +191,7 @@ class MessageAnalysis():
             previous_messages=previous_messages,
             text=text,
             expertise_topics=expertise_topics,
+            knowledge_cutoff_date=knowledge_cutoff_date,
         )
 
         metadata, topic_result = await asyncio.gather(metadata_task, topic_task)
@@ -181,4 +206,5 @@ class MessageAnalysis():
             ),
             topic_result.is_same_subject,
             topic_result.subject_label,
+            topic_result.requires_post_cutoff_knowledge,
         )

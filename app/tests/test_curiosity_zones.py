@@ -49,6 +49,16 @@ class TestClassifyCuriosityZone(unittest.TestCase):
         zone = EmotionEngine.classify_curiosity_zone(Topic.UNIDENTIFIED)
         self.assertEqual(zone, CuriosityZone.APATHY)
 
+    def test_requires_post_cutoff_knowledge_overrides_zone_regardless_of_topic(self):
+        for topic in Topic:
+            with self.subTest(topic=topic):
+                zone = EmotionEngine.classify_curiosity_zone(topic, requires_post_cutoff_knowledge=True)
+                self.assertEqual(zone, CuriosityZone.ANACHRONISTIC)
+
+    def test_requires_post_cutoff_knowledge_defaults_to_false(self):
+        zone = EmotionEngine.classify_curiosity_zone(Topic.EXPERT)
+        self.assertEqual(zone, CuriosityZone.BOREDOM)
+
 
 class TestCuriosityDelta(unittest.TestCase):
 
@@ -134,6 +144,28 @@ class TestCuriosityDelta(unittest.TestCase):
             tone=Tone.CURIOUS, topic_repeat_streak=0, is_hostile_turn=False,
         )
         self.assertAlmostEqual(curious_delta, neutral_delta * 1.3)
+
+    def test_anachronistic_zone_weighted_higher_than_curiosity_peak(self):
+        anachronistic_delta = EmotionEngine.curiosity_delta(
+            novelty_drive=100, intensity=30, zone=CuriosityZone.ANACHRONISTIC, is_new_topic=True,
+            tone=Tone.NEUTRAL, topic_repeat_streak=0, is_hostile_turn=False,
+        )
+        curiosity_delta = EmotionEngine.curiosity_delta(
+            novelty_drive=100, intensity=30, zone=CuriosityZone.CURIOSITY, is_new_topic=True,
+            tone=Tone.NEUTRAL, topic_repeat_streak=0, is_hostile_turn=False,
+        )
+        self.assertGreater(anachronistic_delta, curiosity_delta)
+
+    def test_anachronistic_zone_has_no_repetition_fatigue_decay(self):
+        d0 = EmotionEngine.curiosity_delta(
+            novelty_drive=100, intensity=30, zone=CuriosityZone.ANACHRONISTIC, is_new_topic=True,
+            tone=Tone.NEUTRAL, topic_repeat_streak=0, is_hostile_turn=False,
+        )
+        d10 = EmotionEngine.curiosity_delta(
+            novelty_drive=100, intensity=30, zone=CuriosityZone.ANACHRONISTIC, is_new_topic=True,
+            tone=Tone.NEUTRAL, topic_repeat_streak=10, is_hostile_turn=False,
+        )
+        self.assertAlmostEqual(d0, d10)
 
     def test_routed_around_zone_only_spikes_on_new_topic(self):
         new_topic_delta = EmotionEngine.curiosity_delta(
@@ -236,6 +268,53 @@ class TestPersonaSessionCuriosityIntegration(unittest.TestCase):
 
         self.assertIn("genuine openness to being taught", clause)
         self.assertNotIn("relate or compare it to something in your own areas of expertise", clause)
+
+    def test_post_cutoff_override_gives_eager_question_when_capacity_present(self):
+        session = PersonaSession(name="Churchill", traits={}, expertise_topics=["politics"])
+        session.arousal = 30.0  # below capacity ceiling
+        session.patience = 80.0  # above capacity floor
+        session.turn_count = 1  # not first turn
+
+        # EXPERT topic_domain deliberately — override must fire regardless
+        # of an otherwise-expert-eligible topic.
+        context = BrainContext(
+            question="q", metadata=make_metadata(intent=Intent.ASK, topic_domain=Topic.EXPERT),
+            requires_post_cutoff_knowledge=True,
+        )
+        clause = session.compile_prompt(context)
+
+        self.assertIn("genuinely eager to find out", clause)
+        self.assertNotIn("you are an expert in this field", clause)
+
+    def test_post_cutoff_override_gives_flat_refusal_when_capacity_absent(self):
+        session = PersonaSession(name="Churchill", traits={}, expertise_topics=["politics"])
+        session.arousal = 75.0  # above capacity ceiling
+        session.patience = 80.0
+        session.turn_count = 1
+
+        context = BrainContext(
+            question="q", metadata=make_metadata(intent=Intent.ASK, topic_domain=Topic.EXPERT),
+            requires_post_cutoff_knowledge=True,
+        )
+        clause = session.compile_prompt(context)
+
+        self.assertIn("Say so plainly, briefly, without elaboration", clause)
+        self.assertNotIn("genuinely eager to find out", clause)
+
+    def test_post_cutoff_override_does_not_fire_when_flag_false(self):
+        session = PersonaSession(name="Churchill", traits={}, expertise_topics=["politics"])
+        session.arousal = 30.0
+        session.patience = 80.0
+        session.turn_count = 1
+
+        context = BrainContext(
+            question="q", metadata=make_metadata(intent=Intent.ASK, topic_domain=Topic.EXPERT),
+            requires_post_cutoff_knowledge=False,
+        )
+        clause = session.compile_prompt(context)
+
+        self.assertIn("you are an expert in this field", clause)
+        self.assertNotIn("entirely beyond your lifetime", clause)
 
 
 if __name__ == "__main__":

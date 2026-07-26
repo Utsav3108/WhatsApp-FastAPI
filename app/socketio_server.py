@@ -114,6 +114,34 @@ async def join(sid, data):
 
 
 @sio.event
+async def check_unblock_status(sid, data):
+    """
+    On-demand poll: "is this persona still blocked, right now." Reuses
+    PersonaSession.load()'s existing lazy unblock-on-load logic entirely —
+    no new unblock logic here, no save() (nothing needs persisting; the
+    next real turn's save() will reflect the cleared state). Emits
+    'persona_unblocked' privately to the requesting client only (room=sid)
+    when no longer blocked; emits nothing if still blocked.
+    """
+    user_id = data.get("user_id")
+    persona_id = data.get("persona_id")
+    if not user_id or not persona_id:
+        return
+
+    async with SessionLocal() as db:
+        session = await PersonaSession.load(
+            db, ai_persona_id=persona_id, human_persona_id=user_id
+        )
+
+    if not session.is_blocked:
+        await sio.emit(
+            "persona_unblocked",
+            {"persona_session_id": session.session_id},
+            room=sid,
+        )
+
+
+@sio.event
 async def join_challenge(sid, data):
   # print(f"Received join_challenge event with data: {data}")
 
@@ -426,11 +454,25 @@ async def handle_gemini_response(message: schemas.MessageCreate, past_messages, 
             if message.challenge_session_id
             else f"user:{validated_gemini_response.receiver_id}"
         )
+
         await sio.emit(
             "receive_message",
             validated_gemini_response.model_dump_json(),
             room=room
         )
+
+        if persona_session is not None and persona_session.just_blocked:
+            await sio.emit(
+                "persona_blocked",
+                {
+                    "persona_session_id": persona_session.session_id,
+                    "block_reason": persona_session.block_reason,
+                    "blocked_until": persona_session.blocked_until.isoformat(),
+                },
+                room=room,
+            )
+
+
         past_messages.append(message)
         past_messages.append(validated_gemini_response)
 

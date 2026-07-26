@@ -94,6 +94,10 @@ class StructuredTraits(BaseModel):
     response_rules: Optional[ResponseRulesModel] = None
     example_dialogues: Optional[List[DialogueExampleModel]] = []
     brain: Optional[BrainProfileModel] = None
+    # ISO date string (e.g. "1965-01-24" for Churchill) for historical
+    # personas whose knowledge/life ends at a fixed point in time. None for
+    # every non-historical persona — zero prompt cost or behavior change.
+    knowledge_cutoff_date: Optional[str] = None
 
 def parse_traits(v: Any) -> Any:
     if isinstance(v, str):

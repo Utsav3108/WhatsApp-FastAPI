@@ -19,6 +19,11 @@ class CuriosityZone(str, Enum):
     CURIOSITY = "curiosity"          # GK_FAVORITE — partial familiarity, real info gap (peak)
     BOREDOM = "boredom"              # topic in expertise_topics, deep/technical register — closed gap
     ROUTED_AROUND = "routed_around"  # PERSONAL / GK_LIFE_OR_PERSONAL — rapport, not info-gap
+    ANACHRONISTIC = "anachronistic"  # requires_post_cutoff_knowledge — beyond the persona's lifetime,
+                                      # the largest possible information gap this system can represent.
+                                      # Deliberately not folded into APATHY: apathy's framing (disinterest,
+                                      # ego-driven bridging) is the wrong register for "something from
+                                      # decades in my future" — closer to maximal CURIOSITY, just more so.
 
 
 class EmotionEngine:
@@ -203,7 +208,7 @@ class EmotionEngine:
         }
 
     @staticmethod
-    def classify_curiosity_zone(topic: Topic) -> "CuriosityZone":
+    def classify_curiosity_zone(topic: Topic, requires_post_cutoff_knowledge: bool = False) -> "CuriosityZone":
         """
         Maps the classifier's topic label onto Information Gap Theory's
         curiosity zones. Domain-membership (in/out of the persona's
@@ -214,6 +219,12 @@ class EmotionEngine:
         rapport mechanism, not an information-gap mechanism, and stay
         outside the zone system.
         """
+        if requires_post_cutoff_knowledge:
+            # Checked FIRST — overrides normal zone resolution the same way
+            # PersonaSession.compile_prompt()'s knowledge-gating override
+            # does, and for the same reason: this can be True regardless of
+            # what topic also resolved to.
+            return CuriosityZone.ANACHRONISTIC
         if topic in (Topic.PERSONAL, Topic.GENERAL_KNOWLEDGE_LIFE_OR_PERSONAL):
             return CuriosityZone.ROUTED_AROUND
         if topic == Topic.GENERAL_KNOWLEDGE_FAVORITE:
@@ -266,6 +277,15 @@ class EmotionEngine:
                 stimulation = novelty_factor * violated_expectations_bonus
             else:
                 stimulation = -(boredom_decay * (1 - novelty_factor))
+
+        elif zone == CuriosityZone.ANACHRONISTIC:
+            # No repetition-fatigue decay applied here unlike CURIOSITY —
+            # every distinct post-cutoff topic is presumably equally novel
+            # to a persona who has never encountered ANY of it, so
+            # topic_repeat_streak isn't a meaningful signal in this zone.
+            # Higher weight than CURIOSITY's peak — arguably the largest
+            # information gap this system can represent.
+            stimulation = novelty_factor * (zone_base * 1.5)
 
         else:  # APATHY
             stimulation = -(apathy_decay * (1 - novelty_factor))

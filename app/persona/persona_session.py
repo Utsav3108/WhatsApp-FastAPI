@@ -16,7 +16,7 @@ BLOCK_DURATION_HOURS: float = 1.0
 
 class PersonaSession(BrainComponent):
     def __init__(self, name: str, traits: Dict[str, float], expertise_topics: Optional[List[str]] = None,
-                 violation_block_threshold: int = 2):
+                 violation_block_threshold: int = 2, knowledge_cutoff_date: Optional[str] = None):
 
         self.summary = ""
         self.persona = name
@@ -48,6 +48,11 @@ class PersonaSession(BrainComponent):
         # expertise list, not compared against Topic enum members anymore.
         self.expertise_topics: List[str] = expertise_topics if expertise_topics is not None else []
 
+        # ISO date string for historical personas whose knowledge/life ends
+        # at a fixed point in time (e.g. "1965-01-24" for Churchill). None
+        # for every non-historical persona.
+        self.knowledge_cutoff_date: Optional[str] = knowledge_cutoff_date
+
         self.arousal = max(0.0, 30.0 - (self.baseline_security / 4.0))
         self.patience = min(100.0, 40.0 + (self.self_regulation / 2.0))
         self.mood = 0.0
@@ -66,6 +71,13 @@ class PersonaSession(BrainComponent):
         # (e.g. "roast them back" vs "don't get defensive about their
         # vulnerability, but you don't have room for it right now either").
         self.last_turn_context: Optional[str] = None  # 'banter' | 'vulnerable_engaged' | 'vulnerable_dismissed' | None
+
+        # Turn-local, same pattern as last_turn_context: reset False at the
+        # top of update(), set True only at the exact moment is_blocked
+        # flips False -> True this turn. Read once by socketio_server.py to
+        # decide whether to emit 'persona_blocked' for this turn. Never
+        # persisted.
+        self.just_blocked: bool = False
 
         self.violation_count = 0
         self.VIOLATION_BLOCK_THRESHOLD = violation_block_threshold
@@ -156,7 +168,14 @@ class PersonaSession(BrainComponent):
         if interests_expertise and interests_expertise.expertise:
             expertise = interests_expertise.expertise
 
-        session = cls(name=ai_persona.name, traits=brain_traits, expertise_topics=expertise)
+        knowledge_cutoff_date = getattr(ai_traits, "knowledge_cutoff_date", None)
+
+        session = cls(
+            name=ai_persona.name,
+            traits=brain_traits,
+            expertise_topics=expertise,
+            knowledge_cutoff_date=knowledge_cutoff_date,
+        )
         session.ai_persona_id = ai_persona_id
         session.human_persona_id = human_persona_id
         session.user_info = cls._format_user_info(human_persona)
@@ -305,10 +324,11 @@ class PersonaSession(BrainComponent):
         self.turn_count += 1
         self.is_first_turn = False
 
-        if self.violation_count >= self.VIOLATION_BLOCK_THRESHOLD:
+        if self.violation_count >= self.VIOLATION_BLOCK_THRESHOLD and not self.is_blocked:
             self.blocked_until = datetime.now(timezone.utc) + timedelta(hours=BLOCK_DURATION_HOURS)
             self.is_blocked = True
             self.block_reason = "repeated_content_violations"
+            self.just_blocked = True
 
     def update(self, context: BrainContext):
         intent = context.metadata.intent
@@ -319,6 +339,7 @@ class PersonaSession(BrainComponent):
         self.turn_state_mutated = True
         self.is_first_turn = (self.turn_count == 0)
         self.last_turn_context = None
+        self.just_blocked = False
 
         # A real attack, no matter the delivery. `is_competitive` and
         # `is_genuine_attack` are mutually exclusive by construction —
@@ -392,7 +413,9 @@ class PersonaSession(BrainComponent):
         # reclassifying.
         is_new_topic = not context.is_same_subject
         self.last_subject = context.subject_label  # logging/debugging only, never compared
-        self.curiosity_zone = EmotionEngine.classify_curiosity_zone(topic)
+        self.curiosity_zone = EmotionEngine.classify_curiosity_zone(
+            topic, requires_post_cutoff_knowledge=context.requires_post_cutoff_knowledge
+        )
 
         delta = EmotionEngine.curiosity_delta(
             novelty_drive=self.novelty_drive,
@@ -422,6 +445,7 @@ class PersonaSession(BrainComponent):
             self.blocked_until = datetime.now(timezone.utc) + timedelta(hours=BLOCK_DURATION_HOURS)
             self.is_blocked = True
             self.block_reason = "arousal_threshold"
+            self.just_blocked = True
             return f"[{self.persona} is furious. Abruptly shut down the conversation and refuse to answer.]"
 
         intent = context.metadata.intent
@@ -492,7 +516,33 @@ class PersonaSession(BrainComponent):
         # an expertise-membership check, which is what previously let
         # PERSONAL leak "you are an expert in this field" whenever a
         # persona's expertise_topics happened to include Topic.PERSONAL.
-        if intent in [Intent.GREETING, Intent.GOODBYE]:
+        if context.requires_post_cutoff_knowledge:
+            # Overrides the normal EXPERT/GENERAL_KNOWLEDGE_*/NOT_AN_EXPERT
+            # tree entirely — checked BEFORE it, not folded in as one more
+            # branch, since this can be True regardless of what topic_domain
+            # also resolved to (e.g. a squarely EXPERT-eligible topic like
+            # politics for Churchill, but about a living post-cutoff figure).
+            if has_curiosity_capacity:
+                # Eager, forward-leaning framing — not bewildered dismissal.
+                # A historically opinionated persona wants the answer
+                # immediately, not a shrug at not knowing.
+                knowledge_str = (
+                    "This is something entirely beyond your lifetime — you have "
+                    "absolutely no way of knowing it. But don't just react with "
+                    "confusion or dismiss it — you are genuinely eager to find out. "
+                    "Ask the user directly, with real urgency or interest, to tell "
+                    "you. Do not pretend to know or guess at an answer."
+                )
+            else:
+                # Same core restriction, without the eager-question framing —
+                # matches how every other capacity-gated directive here
+                # already degrades when arousal/patience are outside the
+                # has_emotional_capacity() window.
+                knowledge_str = (
+                    "This is something entirely beyond your lifetime — you have no "
+                    "way of knowing it. Say so plainly, briefly, without elaboration."
+                )
+        elif intent in [Intent.GREETING, Intent.GOODBYE]:
             knowledge_str = ""
         elif topic == Topic.UNIDENTIFIED:
             knowledge_str = ""

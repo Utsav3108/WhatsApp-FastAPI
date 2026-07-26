@@ -20,11 +20,12 @@ class Brain:
         
 
         # 1. Analyze the incoming message
-        metadata, is_same_subject, subject_label = await MessageAnalysis.analyze(
+        metadata, is_same_subject, subject_label, requires_post_cutoff_knowledge = await MessageAnalysis.analyze(
             previous_messages=past_conversation,
             text=question,
             expertise_topics=persona_session.expertise_topics,
-            known_languages=persona_session.languages
+            known_languages=persona_session.languages,
+            knowledge_cutoff_date=persona_session.knowledge_cutoff_date,
         )
 
         print("Parsed Message Metadata:\n", metadata.model_dump_json(indent=2))
@@ -64,6 +65,7 @@ class Brain:
             metadata=metadata,
             is_same_subject=is_same_subject,
             subject_label=subject_label,
+            requires_post_cutoff_knowledge=requires_post_cutoff_knowledge,
         )
 
         # 3. Language check

@@ -55,6 +55,7 @@ class TestTimeDecayMath(unittest.TestCase):
 
         self.assertTrue(session.is_blocked)
         self.assertEqual(session.block_reason, "arousal_threshold")
+        self.assertTrue(session.just_blocked)
         self.assertIsNotNone(session.blocked_until)
         self.assertGreaterEqual(
             session.blocked_until, before + timedelta(hours=persona_session_module.BLOCK_DURATION_HOURS)
@@ -62,6 +63,21 @@ class TestTimeDecayMath(unittest.TestCase):
         self.assertLessEqual(
             session.blocked_until, after + timedelta(hours=persona_session_module.BLOCK_DURATION_HOURS)
         )
+
+    def test_just_blocked_does_not_refire_on_next_turn(self):
+        session = PersonaSession(name="Test", traits=BRAIN_TRAITS)
+        session.arousal = session.BLOCK_THRESHOLD
+        context = BrainContext(question="q", metadata=make_metadata())
+        session.compile_prompt(context)
+        self.assertTrue(session.just_blocked)
+
+        # A second turn: update() resets just_blocked at the top, and the
+        # hard is_blocked gate at the top of compile_prompt() short-circuits
+        # before the arousal-threshold branch could ever re-set it.
+        session.update(context)
+        self.assertFalse(session.just_blocked)
+        session.compile_prompt(context)
+        self.assertFalse(session.just_blocked)
 
     def test_violation_count_sets_blocked_until_and_is_blocked(self):
         session = PersonaSession(name="Test", traits=BRAIN_TRAITS, violation_block_threshold=2)
@@ -69,11 +85,13 @@ class TestTimeDecayMath(unittest.TestCase):
         before = datetime.now(timezone.utc)
         session.register_violation(Topic.NUDITY)
         self.assertFalse(session.is_blocked)  # first violation, threshold not yet reached
+        self.assertFalse(session.just_blocked)
         session.register_violation(Topic.NUDITY)
         after = datetime.now(timezone.utc)
 
         self.assertTrue(session.is_blocked)
         self.assertEqual(session.block_reason, "repeated_content_violations")
+        self.assertTrue(session.just_blocked)
         self.assertIsNotNone(session.blocked_until)
         self.assertGreaterEqual(
             session.blocked_until, before + timedelta(hours=persona_session_module.BLOCK_DURATION_HOURS)
@@ -81,6 +99,19 @@ class TestTimeDecayMath(unittest.TestCase):
         self.assertLessEqual(
             session.blocked_until, after + timedelta(hours=persona_session_module.BLOCK_DURATION_HOURS)
         )
+
+    def test_register_violation_does_not_reset_just_blocked_once_already_blocked(self):
+        session = PersonaSession(name="Test", traits=BRAIN_TRAITS, violation_block_threshold=1)
+        session.register_violation(Topic.NUDITY)
+        self.assertTrue(session.is_blocked)
+        self.assertTrue(session.just_blocked)
+
+        # Simulate a fresh turn's reset (as update() would do), then another
+        # violation while already blocked — must NOT re-set just_blocked.
+        session.just_blocked = False
+        session.register_violation(Topic.NUDITY)
+        self.assertTrue(session.is_blocked)
+        self.assertFalse(session.just_blocked)
 
     def test_block_duration_constant_is_single_source_of_truth(self):
         with patch.object(persona_session_module, "BLOCK_DURATION_HOURS", 3.0):

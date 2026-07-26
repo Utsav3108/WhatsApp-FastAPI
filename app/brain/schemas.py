@@ -85,3 +85,13 @@ class TopicDetectionResponse(BaseModel):
         "that is clearly still part of the same exchange should be True even if it "
         "doesn't repeat the subject's name."
     )
+    requires_post_cutoff_knowledge: bool = Field(
+        default=False,
+        description="Only meaningfully populated when the persona has a knowledge "
+        "cutoff date. True if this message references, requires, or implicitly "
+        "assumes knowledge of any real-world event, technology, person, or fact that "
+        "postdates that persona's cutoff — regardless of which topic_domain it also "
+        "resolves to. A question can be squarely within the persona's expertise and "
+        "still require post-cutoff knowledge (e.g. asking about a living politician "
+        "who took office decades after a historical persona's death)."
+    )

@@ -22,7 +22,7 @@ from app.enums import ChallengeResult
 
 from app.services import message_service
 from app.persona import persona_service, persona_session_crud
-from app.persona.persona_session import PersonaSession
+from app.persona.persona_session import PersonaSession, PersonaSessionMismatchError
 
 
 # Socket.IO server setup with optional Redis support
@@ -78,18 +78,30 @@ async def leave_chat(sid, data):
     user_id = data.get("user_id")
     persona_id = data.get("persona_id")
     challenge_session_id = data.get("challenge_session_id")
+    client_persona_session_id = data.get("persona_session_id")
     if user_id:
         # Cancel in-flight Gemini task for this specific chat
         if challenge_session_id:
             chat_key = f"user_{user_id}_session_{challenge_session_id}"
         elif persona_id:
             # Mirrors handle_send_message's persona_session-keyed chat_key —
-            # resolve the same most-recent session id for this pair so the
-            # cancellation lookup actually matches.
+            # resolve the same session id for this pair so the cancellation
+            # lookup actually matches. If the client supplies a
+            # persona_session_id, it must belong to this pair or it's
+            # rejected (persona_session_id=None) rather than silently
+            # falling back to "latest" — that could cancel the wrong fork's
+            # in-flight task.
             async with SessionLocal() as db:
-                persona_session_id = await persona_session_crud.get_latest_persona_session_id(
-                    db, ai_persona_id=persona_id, human_persona_id=user_id
-                )
+                if client_persona_session_id is not None:
+                    row = await persona_session_crud.get_persona_session_by_id_for_pair(
+                        db, client_persona_session_id,
+                        ai_persona_id=persona_id, human_persona_id=user_id,
+                    )
+                    persona_session_id = row.id if row is not None else None
+                else:
+                    persona_session_id = await persona_session_crud.get_latest_persona_session_id(
+                        db, ai_persona_id=persona_id, human_persona_id=user_id
+                    )
             chat_key = f"user_{user_id}_persona_session_{persona_session_id}" if persona_session_id is not None else None
         else:
             chat_key = None
@@ -125,13 +137,18 @@ async def check_unblock_status(sid, data):
     """
     user_id = data.get("user_id")
     persona_id = data.get("persona_id")
+    persona_session_id = data.get("persona_session_id")
     if not user_id or not persona_id:
         return
 
     async with SessionLocal() as db:
-        session = await PersonaSession.load(
-            db, ai_persona_id=persona_id, human_persona_id=user_id
-        )
+        try:
+            session = await PersonaSession.load(
+                db, ai_persona_id=persona_id, human_persona_id=user_id,
+                persona_session_id=persona_session_id,
+            )
+        except PersonaSessionMismatchError:
+            return
 
     if not session.is_blocked:
         await sio.emit(
@@ -304,11 +321,22 @@ async def handle_send_message(payload, db: AsyncSession, sid):
     # persona_session stays None for them, matching ask_gemini's contract.
     persona_session: Optional[PersonaSession] = None
     if not challenge_session:
-        persona_session = await PersonaSession.load(
-            db,
-            ai_persona_id=message_in.receiver_id,
-            human_persona_id=message_in.sender_id,
-        )
+        try:
+            persona_session = await PersonaSession.load(
+                db,
+                ai_persona_id=message_in.receiver_id,
+                human_persona_id=message_in.sender_id,
+                persona_session_id=message_in.persona_session_id,
+            )
+        except PersonaSessionMismatchError:
+            # Client-supplied persona_session_id doesn't belong to this
+            # (receiver_id, sender_id) pair — reject the message entirely
+            # rather than silently falling back to a different fork.
+            print(
+                f"Rejected send_message: persona_session_id {message_in.persona_session_id} "
+                f"does not belong to receiver {message_in.receiver_id}/sender {message_in.sender_id}"
+            )
+            return
         if persona_session.session_id is None:
             # Pure identity creation — Brain.build() hasn't run yet, so
             # nothing has mutated arousal/patience/mood this turn.

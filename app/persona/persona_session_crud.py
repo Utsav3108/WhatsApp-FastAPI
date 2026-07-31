@@ -28,6 +28,28 @@ async def get_persona_session_by_id(db: AsyncSession, persona_session_id: int) -
     return await db.get(models.PersonaSessionModel, persona_session_id)
 
 
+async def get_persona_session_by_id_for_pair(
+    db: AsyncSession,
+    persona_session_id: int,
+    ai_persona_id: int,
+    human_persona_id: int,
+) -> Optional[models.PersonaSessionModel]:
+    """Ownership-checked-by-id lookup: returns the row only if its id AND
+    (ai_persona_id, human_persona_id) all match, folded into one query
+    (mirrors crud.get_messages_paginated_by_persona_session_id). Returns None
+    both when the id doesn't exist and when it belongs to a different pair —
+    the two cases are deliberately indistinguishable, since every caller
+    treats either one as "reject," never as "fall back."
+    """
+    result = await db.execute(
+        select(models.PersonaSessionModel)
+        .where(models.PersonaSessionModel.id == persona_session_id)
+        .where(models.PersonaSessionModel.ai_persona_id == ai_persona_id)
+        .where(models.PersonaSessionModel.human_persona_id == human_persona_id)
+    )
+    return result.scalars().first()
+
+
 async def get_latest_persona_session(db: AsyncSession, ai_persona_id: int, human_persona_id: int) -> Optional[models.PersonaSessionModel]:
     result = await db.execute(
         select(models.PersonaSessionModel)

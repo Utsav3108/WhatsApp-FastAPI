@@ -23,8 +23,20 @@ This document describes the Socket.IO events handled by the backend server in `s
 
 ### `check_unblock_status`
 - **Description:** On-demand poll for whether a persona session that was previously blocked (arousal threshold or repeated content violations) has since auto-unblocked. Reuses the same lazy unblock-on-load logic as a normal chat turn — no server-side timer/scheduler involved. If the session is still blocked, nothing is emitted.
-- **Payload:** `{ "user_id": int, "persona_id": int }`
+- **Payload:**
+  - `user_id`: int
+  - `persona_id`: int
+  - `persona_session_id`: int (optional) — pins the poll to this specific fork. If omitted, the server resolves the most-recently-updated fork for the `(persona_id, user_id)` pair (unchanged legacy behavior). If provided and it doesn't belong to this pair (or doesn't exist), nothing is emitted — indistinguishable from "still blocked" from the client's perspective.
 - **Response:** `persona_unblocked` emitted privately to the requesting client only (not broadcast to the room) if the persona is no longer blocked.
+
+### `leave_chat`
+- **Description:** Cancels the in-flight background Gemini task for a specific chat (persona chat or challenge), e.g. when the user navigates away before the AI reply completes.
+- **Payload:**
+  - `user_id`: int
+  - `persona_id`: int (optional) — for regular persona chats
+  - `challenge_session_id`: int (optional) — for challenge chats
+  - `persona_session_id`: int (optional) — pins the cancellation to this specific fork. If omitted, the server resolves the most-recently-updated fork for the `(persona_id, user_id)` pair (unchanged legacy behavior). If provided and it doesn't belong to this pair (or doesn't exist), the cancellation is skipped (no task is cancelled).
+- **Response:** None
 
 ---
 
@@ -74,6 +86,7 @@ This document describes the Socket.IO events handled by the backend server in `s
   - `text`: str
   - `challenge_session_id`: int
   - `image_object_name`: str (optional)
+  - `persona_session_id`: int (optional) — pins the message to this specific fork of the `(receiver_id, sender_id)` persona chat. If omitted, the server resolves/auto-creates the most-recently-updated fork for that pair (unchanged legacy behavior). If provided and it doesn't belong to that pair (or doesn't exist), the message is silently dropped — nothing is persisted, no `receive_message` is emitted.
 - **Response:** None (AI response will be sent via `receive_message` event)
 
 
@@ -86,7 +99,7 @@ This document describes the Socket.IO events handled by the backend server in `s
   - `text` (string): Message text
   - `image_object_name` (string, optional): Name of the image object if present
   - `challenge_session_id` (int, optional): Challenge session ID if message is part of a challenge
-  - `persona_session_id` (int, optional): The persona session this message belongs to (regular chat only, `null` for challenges). Server-assigned — clients never set this on `send_message`, only read it here to track the active session for a given (persona, user) pair.
+  - `persona_session_id` (int, optional): The persona session this message belongs to (regular chat only, `null` for challenges). Clients may optionally set this on `send_message` to target a specific fork; if omitted there, the server resolves it via the pair's most-recently-updated fork as before. Either way, read it here to track the active session for a given (persona, user) pair.
 
 
 ### `persona_blocked`

@@ -14,6 +14,15 @@ from app.brain.brain_component import BrainComponent
 BLOCK_DURATION_HOURS: float = 0.01
 ELAPSED_TIME_DECAY: float = 3600
 
+class PersonaSessionMismatchError(Exception):
+    """Raised by PersonaSession.load() when a caller passes an explicit
+    persona_session_id that does not belong to the given
+    (ai_persona_id, human_persona_id) pair, or doesn't exist at all.
+    Callers must treat this as a hard reject — catching and silently
+    falling back to "latest" would defeat the ownership check entirely.
+    """
+
+
 class PersonaSession(BrainComponent):
     def __init__(self, name: str, traits: Dict[str, float], expertise_topics: Optional[List[str]] = None,
                  violation_block_threshold: int = 2, knowledge_cutoff_date: Optional[str] = None):
@@ -189,13 +198,25 @@ class PersonaSession(BrainComponent):
         specific row if persona_session_id (an explicit fork pick) is given
         — falling back to __init__'s baseline-formula defaults if the pair
         has never talked before.
+
+        When persona_session_id is given, it must belong to the
+        (ai_persona_id, human_persona_id) pair or PersonaSessionMismatchError
+        is raised — never silently falls back to "latest" instead, since
+        that would defeat the point of pinning a specific fork.
         """
         from app.persona import persona_session_crud
 
         session = await cls._baseline(db, ai_persona_id, human_persona_id)
 
         if persona_session_id is not None:
-            row = await persona_session_crud.get_persona_session_by_id(db, persona_session_id)
+            row = await persona_session_crud.get_persona_session_by_id_for_pair(
+                db, persona_session_id, ai_persona_id, human_persona_id
+            )
+            if row is None:
+                raise PersonaSessionMismatchError(
+                    f"persona_session_id={persona_session_id} does not belong to "
+                    f"ai_persona_id={ai_persona_id}, human_persona_id={human_persona_id}"
+                )
         else:
             row = await persona_session_crud.get_latest_persona_session(db, ai_persona_id, human_persona_id)
 

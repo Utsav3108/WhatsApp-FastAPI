@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import schemas, models, crud
@@ -42,6 +42,32 @@ async def get_personas_user_chatted_with(
         raise HTTPException(status_code=403, detail="Forbidden: Cannot access other user's chat history")
     response = await persona_service.get_personas_user_chatted_with(db, user_id, limit=limit, offset=offset)
     return response
+
+@router.get("/personas/{persona_id}/details", response_model=schemas.PersonaDetailsResponse)
+async def get_persona_details(
+    persona_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
+):
+    try:
+        return await persona_service.get_persona_details(db, persona_id)
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+
+@router.get("/personas/{persona_id}/chats", response_model=schemas.PersonaChatsResponse)
+async def get_persona_chats(
+    persona_id: int,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: models.Persona = Depends(get_current_user)
+):
+    try:
+        return await persona_service.get_persona_chats(
+            db, ai_persona_id=persona_id, human_persona_id=current_user.id, page=page, limit=limit
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
 
 @router.post("/persona-sessions/new", response_model=schemas.PersonaSessionCreateResponse)
 async def create_new_persona_session(

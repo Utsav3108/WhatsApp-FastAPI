@@ -1,5 +1,17 @@
+import math
+from datetime import datetime, timezone
+
 from app import crud, cache
-from app.schemas import PersonaResponse, PersonaCreate
+from app.schemas import (
+    PersonaResponse,
+    PersonaCreate,
+    PersonaDetailsResponse,
+    PersonaChatStatus,
+    PersonaChatListItem,
+    PersonaChatsResponse,
+    StructuredTraits,
+)
+from app.persona import persona_session_crud
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
@@ -49,3 +61,89 @@ async def get_all_personas(db: AsyncSession, limit: int = 50, offset: int = 0) -
 async def create_persona(db: AsyncSession, persona: PersonaCreate) -> PersonaResponse:
     db_persona = await crud.save_persona(db, persona)
     return PersonaResponse.model_validate(db_persona)
+
+async def _get_ai_persona_or_404(db: AsyncSession, persona_id: int) -> PersonaResponse:
+    """Shared lookup for persona-details-page endpoints: 404s (via ValueError,
+    translated by the router) for a missing persona or one that's actually a
+    human persona rather than an AI one."""
+    try:
+        persona = await get_persona_by_id(db, persona_id)
+    except ValueError:
+        raise ValueError(f"Persona with ID {persona_id} not found.")
+    if persona.is_human:
+        raise ValueError(f"Persona with ID {persona_id} not found.")
+    return persona
+
+async def get_persona_details(db: AsyncSession, persona_id: int) -> PersonaDetailsResponse:
+    persona = await _get_ai_persona_or_404(db, persona_id)
+
+    expertise = None
+    likes_dislikes = None
+    if isinstance(persona.traits, StructuredTraits):
+        if persona.traits.interests_expertise:
+            expertise = persona.traits.interests_expertise.expertise
+        likes_dislikes = persona.traits.likes_dislikes
+
+    return PersonaDetailsResponse(
+        name=persona.name,
+        desc=persona.desc,
+        expertise=expertise,
+        category=persona.category,
+        likes_dislikes=likes_dislikes,
+    )
+
+def _is_effectively_blocked(session, now: datetime) -> bool:
+    """Read-only equivalent of PersonaSession.load()'s blocked check, without
+    the lazy-unblock decay/save side effects that path performs — mirrors the
+    same blocked_until-only derivation used by the admin persona-session
+    listing (is_blocked is not trusted here since it only gets refreshed by
+    load())."""
+    blocked_until = session.blocked_until
+    if blocked_until is None:
+        return False
+    if blocked_until.tzinfo is None:
+        blocked_until = blocked_until.replace(tzinfo=timezone.utc)
+    return blocked_until > now
+
+async def get_persona_chats(
+    db: AsyncSession,
+    ai_persona_id: int,
+    human_persona_id: int,
+    page: int = 1,
+    limit: int = 20,
+) -> PersonaChatsResponse:
+    await _get_ai_persona_or_404(db, ai_persona_id)
+
+    recent = await persona_session_crud.get_latest_persona_session(db, ai_persona_id, human_persona_id)
+    recent_id = recent.id if recent else None
+
+    rows, total_count = await persona_session_crud.get_persona_sessions_paginated(
+        db, ai_persona_id, human_persona_id, page=page, limit=limit
+    )
+
+    now = datetime.now(timezone.utc)
+    chats = []
+    for row in rows:
+        if row.id == recent_id:
+            status = PersonaChatStatus.recent
+        elif _is_effectively_blocked(row, now):
+            status = PersonaChatStatus.blocked
+        else:
+            status = PersonaChatStatus.active
+        chats.append(PersonaChatListItem(
+            persona_session_id=row.id,
+            status=status,
+            last_updated_at=row.updated_at,
+        ))
+
+    total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
+    has_more = page < total_pages
+
+    return PersonaChatsResponse(
+        chats=chats,
+        page=page,
+        limit=limit,
+        total_count=total_count,
+        total_pages=total_pages,
+        has_more=has_more,
+    )

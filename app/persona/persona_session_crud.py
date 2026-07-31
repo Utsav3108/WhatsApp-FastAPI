@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import select, update as sa_update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models
@@ -43,6 +43,35 @@ async def get_latest_persona_session(db: AsyncSession, ai_persona_id: int, human
         .limit(1)
     )
     return result.scalars().first()
+
+
+async def get_persona_sessions_paginated(
+    db: AsyncSession,
+    ai_persona_id: int,
+    human_persona_id: int,
+    page: int = 1,
+    limit: int = 20,
+) -> tuple[list[models.PersonaSessionModel], int]:
+    """Paginated fetch of every fork for an (ai_persona_id, human_persona_id)
+    pair. Returns (rows, total_count), ordered most-recently-active first."""
+    base_filter = (
+        (models.PersonaSessionModel.ai_persona_id == ai_persona_id)
+        & (models.PersonaSessionModel.human_persona_id == human_persona_id)
+    )
+    offset = (page - 1) * limit
+
+    total_result = await db.execute(select(func.count(models.PersonaSessionModel.id)).filter(base_filter))
+    total_count = total_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.PersonaSessionModel)
+        .filter(base_filter)
+        .order_by(models.PersonaSessionModel.updated_at.desc(), models.PersonaSessionModel.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    rows = result.scalars().all()
+    return rows, total_count
 
 
 async def create_persona_session(

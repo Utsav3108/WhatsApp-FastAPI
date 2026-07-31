@@ -139,6 +139,13 @@ class PersonaResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class PersonaDetailsResponse(BaseModel):
+    name: str
+    desc: str
+    expertise: Optional[List[str]] = None
+    category: str
+    likes_dislikes: Optional[LikesDislikesModel] = None
+
 class UserProfileUpdate(BaseModel):
     role: Optional[str] = None
     bio: Optional[str] = None
@@ -294,6 +301,27 @@ class PaginatedMessagesResponse(BaseModel):
     messages: List[MessageResponse]
     page: int
     page_size: int
+    total_count: int
+    total_pages: int
+    has_more: bool
+
+
+class PersonaChatStatus(str, Enum):
+    recent = "recent"
+    active = "active"
+    blocked = "blocked"
+
+
+class PersonaChatListItem(BaseModel):
+    persona_session_id: int
+    status: PersonaChatStatus
+    last_updated_at: datetime.datetime
+
+
+class PersonaChatsResponse(BaseModel):
+    chats: List[PersonaChatListItem]
+    page: int
+    limit: int
     total_count: int
     total_pages: int
     has_more: bool

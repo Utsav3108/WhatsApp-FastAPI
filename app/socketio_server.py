@@ -30,10 +30,14 @@ redis_url = os.getenv("REDIS_URL")
 if redis_url:
   # print(f"Connecting Socket.IO to Redis at {redis_url}")
     client_manager = socketio.AsyncRedisManager(redis_url)
-    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*', client_manager=client_manager)
+    # cors_allowed_origins=[] disables python-socketio's own CORS header
+    # injection — FastAPI's CORSMiddleware in main.py already wraps this
+    # mounted sub-app, and having both add Access-Control-Allow-Origin
+    # produces a duplicate header that browsers reject outright.
+    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins=[], client_manager=client_manager)
 else:
   # print("Using in-memory Socket.IO manager.")
-    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins=[])
 
 sio_app = socketio.ASGIApp(sio)
 manager = ConnectionManager()

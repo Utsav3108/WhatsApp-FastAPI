@@ -157,6 +157,7 @@ The token is verified securely against Google's OAuth2 APIs. Upon validation:
 - `sender_id` (int)
 - `receiver_id` (int)
 - `text` (string)
+- `timestamp` (datetime, ISO 8601, UTC): When the message was sent/persisted.
 - `image_object_name` (string, optional)
 - `challenge_session_id` (int, optional)
 - `persona_session_id` (int, optional): The persona session (fork) this message belongs to. Set for regular persona chat, `null` for challenge messages.

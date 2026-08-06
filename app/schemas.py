@@ -190,6 +190,7 @@ class MessageCreate(BaseModel):
 
 class MessageResponse(MessageCreate):
     id: int
+    timestamp: datetime.datetime
 
     class Config:
         from_attributes = True

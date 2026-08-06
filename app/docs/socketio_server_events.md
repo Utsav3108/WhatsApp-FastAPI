@@ -97,6 +97,7 @@ This document describes the Socket.IO events handled by the backend server in `s
   - `sender_id` (int): Sender user ID
   - `receiver_id` (int): Receiver user ID
   - `text` (string): Message text
+  - `timestamp` (datetime, ISO 8601, UTC): When the message was sent/persisted
   - `image_object_name` (string, optional): Name of the image object if present
   - `challenge_session_id` (int, optional): Challenge session ID if message is part of a challenge
   - `persona_session_id` (int, optional): The persona session this message belongs to (regular chat only, `null` for challenges). Clients may optionally set this on `send_message` to target a specific fork; if omitted there, the server resolves it via the pair's most-recently-updated fork as before. Either way, read it here to track the active session for a given (persona, user) pair.

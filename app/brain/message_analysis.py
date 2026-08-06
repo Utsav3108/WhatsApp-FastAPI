@@ -2,8 +2,6 @@ import asyncio
 from typing import List, Optional
 from .schemas import UserMessageMetaDataResponse, MessageMetadataOnly, TopicDetectionResponse
 
-from classifiers.language_classifiers import predict
-
 
 class MessageAnalysis():
 
@@ -159,13 +157,13 @@ class MessageAnalysis():
 
         return result
 
-    @staticmethod
-    def _detect_language(text: str) -> str:
-        """
-        Returns the language with the highest confidence score.
-        """
-        result: dict[str, float] = predict(text)
-        return max(result, key=result.get)
+    # @staticmethod
+    # def _detect_language(text: str) -> str:
+    #     """
+    #     Returns the language with the highest confidence score.
+    #     """
+    #     result: dict[str, float] = predict(text)
+    #     return max(result, key=result.get)
 
     @staticmethod
     async def analyze(previous_messages, text: str, expertise_topics: List[str], known_languages: List[str],

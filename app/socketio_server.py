@@ -135,15 +135,19 @@ async def check_unblock_status(sid, data):
     On-demand poll: "is this persona still blocked, right now." Reuses
     PersonaSession.load()'s existing lazy unblock-on-load logic entirely —
     no new unblock logic here, no save() (nothing needs persisting; the
-    next real turn's save() will reflect the cleared state). Emits
-    'persona_unblocked' privately to the requesting client only (room=sid)
-    when no longer blocked; emits nothing if still blocked.
+    next real turn's save() will reflect the cleared state).
+
+    Always acks the requesting client with the result (python-socketio ack
+    callback) so the caller doesn't need a client-side timeout to
+    distinguish "still blocked" / "not found" from "reply hasn't arrived
+    yet". Also keeps emitting 'persona_unblocked' privately (room=sid) on
+    the unblocked path for existing listeners.
     """
     user_id = data.get("user_id")
     persona_id = data.get("persona_id")
     persona_session_id = data.get("persona_session_id")
     if not user_id or not persona_id:
-        return
+        return {"error": "invalid_payload"}
 
     async with SessionLocal() as db:
         try:
@@ -152,14 +156,22 @@ async def check_unblock_status(sid, data):
                 persona_session_id=persona_session_id,
             )
         except PersonaSessionMismatchError:
-            return
+            return {"error": "not_found"}
 
-    if not session.is_blocked:
-        await sio.emit(
-            "persona_unblocked",
-            {"persona_session_id": session.session_id},
-            room=sid,
-        )
+    if session.is_blocked:
+        return {
+            "blocked": True,
+            "persona_session_id": session.session_id,
+            "block_reason": session.block_reason,
+            "blocked_until": session.blocked_until.isoformat(),
+        }
+
+    await sio.emit(
+        "persona_unblocked",
+        {"persona_session_id": session.session_id},
+        room=sid,
+    )
+    return {"blocked": False, "persona_session_id": session.session_id}
 
 
 @sio.event

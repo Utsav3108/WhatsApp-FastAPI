@@ -22,12 +22,16 @@ This document describes the Socket.IO events handled by the backend server in `s
 - **Response:** None
 
 ### `check_unblock_status`
-- **Description:** On-demand poll for whether a persona session that was previously blocked (arousal threshold or repeated content violations) has since auto-unblocked. Reuses the same lazy unblock-on-load logic as a normal chat turn — no server-side timer/scheduler involved. If the session is still blocked, nothing is emitted.
+- **Description:** On-demand poll for whether a persona session that was previously blocked (arousal threshold or repeated content violations) has since auto-unblocked. Reuses the same lazy unblock-on-load logic as a normal chat turn — no server-side timer/scheduler involved. Always acks the requesting client with the result (Socket.IO ack callback) — emit with a callback to receive it: `socket.emit("check_unblock_status", payload, callback)`.
 - **Payload:**
   - `user_id`: int
   - `persona_id`: int
-  - `persona_session_id`: int (optional) — pins the poll to this specific fork. If omitted, the server resolves the most-recently-updated fork for the `(persona_id, user_id)` pair (unchanged legacy behavior). If provided and it doesn't belong to this pair (or doesn't exist), nothing is emitted — indistinguishable from "still blocked" from the client's perspective.
-- **Response:** `persona_unblocked` emitted privately to the requesting client only (not broadcast to the room) if the persona is no longer blocked.
+  - `persona_session_id`: int (optional) — pins the poll to this specific fork. If omitted, the server resolves the most-recently-updated fork for the `(persona_id, user_id)` pair (unchanged legacy behavior). If provided and it doesn't belong to this pair (or doesn't exist), the ack returns `{"error": "not_found"}`.
+- **Response:** ack callback, always sent to the requesting client only:
+  - Still blocked: `{"blocked": true, "persona_session_id": int, "block_reason": string, "blocked_until": string (ISO 8601)}`
+  - No longer blocked: `{"blocked": false, "persona_session_id": int}` — the server also still emits `persona_unblocked` privately (room=sid) in this case, unchanged, for existing listeners.
+  - `user_id`/`persona_id` missing from the payload: `{"error": "invalid_payload"}`
+  - `persona_session_id` doesn't belong to the pair, or doesn't exist: `{"error": "not_found"}`
 
 ### `leave_chat`
 - **Description:** Cancels the in-flight background Gemini task for a specific chat (persona chat or challenge), e.g. when the user navigates away before the AI reply completes.

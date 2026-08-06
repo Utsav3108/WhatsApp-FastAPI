@@ -3,7 +3,7 @@
 import datetime
 import json
 from typing import Any, List, Optional, Union, Annotated
-from pydantic import BaseModel, ConfigDict, Field, BeforeValidator
+from pydantic import BaseModel, ConfigDict, Field, BeforeValidator, field_validator
 
 from app import enums
 
@@ -16,13 +16,16 @@ class IdentityModel(BaseModel):
     intro: Optional[str] = ""
 
 class PersonalitySlidersModel(BaseModel):
+    # patience/curiosity/warmth/emotionality removed — they duplicate what
+    # Brain now computes dynamically per-session under the same names
+    # (PersonaSession.patience/curiosity/mood, driven by emotion_engine.py
+    # formulas). Keeping a static "patience: 5/10" default alongside a live
+    # turn-by-turn patience value creates ambiguity about which number a
+    # prompt-builder means — see BrainProfileModel below for the dynamic
+    # per-persona rate constants that actually drive that state.
     confidence: Optional[int] = 5
     humor: Optional[int] = 5
-    warmth: Optional[int] = 5
-    curiosity: Optional[int] = 5
     competitiveness: Optional[int] = 5
-    patience: Optional[int] = 5
-    emotionality: Optional[int] = 5
     assertiveness: Optional[int] = 5
     intelligence: Optional[int] = 5
     playfulness: Optional[int] = 5
@@ -30,10 +33,6 @@ class PersonalitySlidersModel(BaseModel):
 class SpeechStyleModel(BaseModel):
     tone: Optional[str] = "Casual"
     modifiers: Optional[List[str]] = []
-    custom: Optional[str] = ""
-
-class EmotionalProfileModel(BaseModel):
-    traits: Optional[List[str]] = []
     custom: Optional[str] = ""
 
 class HumorModel(BaseModel):
@@ -48,10 +47,6 @@ class LikesDislikesModel(BaseModel):
     likes: Optional[List[str]] = []
     dislikes: Optional[List[str]] = []
 
-class RelationshipStyleModel(BaseModel):
-    treat_user_as: Optional[str] = "Friend"
-    behaviors: Optional[List[str]] = []
-
 class ResponseRulesModel(BaseModel):
     guidelines: Optional[List[str]] = []
     custom: Optional[str] = ""
@@ -60,20 +55,49 @@ class DialogueExampleModel(BaseModel):
     user: Optional[str] = ""
     persona: Optional[str] = ""
 
+class BrainProfileModel(BaseModel):
+    """
+    The five Brain trait rate-constants (app/brain/ — threat_sensitivity
+    etc.) that drive PersonaSession's per-turn emotional state math. Must be
+    an explicit field on StructuredTraits, not a loose JSON key — Pydantic
+    v2's default `extra` behavior on these models silently strips
+    unrecognized keys, so writing traits.brain as an ad-hoc dict key would
+    appear to save successfully but vanish on the next round-trip through
+    PersonaCreate/PersonaResponse.
+    """
+    threat_sensitivity: Optional[float] = 50.0
+    self_regulation: Optional[float] = 50.0
+    novelty_drive: Optional[float] = 50.0
+    baseline_security: Optional[float] = 50.0
+    empathic_resonance: Optional[float] = 50.0
+
+    @field_validator(
+        "threat_sensitivity", "self_regulation", "novelty_drive",
+        "baseline_security", "empathic_resonance",
+    )
+    @classmethod
+    def _bound_trait(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and not (0.0 <= v <= 100.0):
+            raise ValueError("Brain trait values must be between 0.0 and 100.0")
+        return v
+
 class StructuredTraits(BaseModel):
     identity: Optional[IdentityModel] = None
     personality_sliders: Optional[PersonalitySlidersModel] = None
     custom_traits: Optional[List[str]] = []
     values: Optional[List[str]] = []
     speech_style: Optional[SpeechStyleModel] = None
-    emotional_profile: Optional[EmotionalProfileModel] = None
     humor: Optional[HumorModel] = None
     interests_expertise: Optional[InterestsExpertiseModel] = None
     likes_dislikes: Optional[LikesDislikesModel] = None
     backstory: Optional[str] = ""
-    relationship_style: Optional[RelationshipStyleModel] = None
     response_rules: Optional[ResponseRulesModel] = None
     example_dialogues: Optional[List[DialogueExampleModel]] = []
+    brain: Optional[BrainProfileModel] = None
+    # ISO date string (e.g. "1965-01-24" for Churchill) for historical
+    # personas whose knowledge/life ends at a fixed point in time. None for
+    # every non-historical persona — zero prompt cost or behavior change.
+    knowledge_cutoff_date: Optional[str] = None
 
 def parse_traits(v: Any) -> Any:
     if isinstance(v, str):
@@ -115,6 +139,13 @@ class PersonaResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class PersonaDetailsResponse(BaseModel):
+    name: str
+    desc: str
+    expertise: Optional[List[str]] = None
+    category: str
+    likes_dislikes: Optional[LikesDislikesModel] = None
+
 class UserProfileUpdate(BaseModel):
     role: Optional[str] = None
     bio: Optional[str] = None
@@ -155,13 +186,22 @@ class MessageCreate(BaseModel):
     text: str
     image_object_name: Optional[str] = None
     challenge_session_id: Optional[int] = None
+    persona_session_id: Optional[int] = None
 
 class MessageResponse(MessageCreate):
     id: int
+    timestamp: datetime.datetime
 
     class Config:
         from_attributes = True
 
+
+class PersonaSessionCreateRequest(BaseModel):
+    persona_id: int  # the AI persona to start a fresh session with
+
+
+class PersonaSessionCreateResponse(BaseModel):
+    persona_session_id: int
 
 
 
@@ -246,12 +286,14 @@ class ChallengeSetupResponse(BaseModel):
 
 class ConversationRequest(BaseModel):
     """Discriminated by which optional fields are present:
-    - sender_id + receiver_id  → persona-to-persona chat
+    - sender_id + receiver_id  → persona-to-persona chat (all forks mixed)
+    - persona_session_id       → one specific fork of a persona chat
     - challenge_session_id      → ongoing challenge session
     - attempt_session_id        → past completed challenge (treated as challenge_session_id)
     """
     sender_id: Optional[int] = None
     receiver_id: Optional[int] = None
+    persona_session_id: Optional[int] = None
     challenge_session_id: Optional[int] = None
     attempt_session_id: Optional[int] = None
 
@@ -260,6 +302,27 @@ class PaginatedMessagesResponse(BaseModel):
     messages: List[MessageResponse]
     page: int
     page_size: int
+    total_count: int
+    total_pages: int
+    has_more: bool
+
+
+class PersonaChatStatus(str, Enum):
+    recent = "recent"
+    active = "active"
+    blocked = "blocked"
+
+
+class PersonaChatListItem(BaseModel):
+    persona_session_id: int
+    status: PersonaChatStatus
+    last_updated_at: datetime.datetime
+
+
+class PersonaChatsResponse(BaseModel):
+    chats: List[PersonaChatListItem]
+    page: int
+    limit: int
     total_count: int
     total_pages: int
     has_more: bool
@@ -370,3 +433,103 @@ class AIContentReportResponse(AIContentReportCreate):
 
     class Config:
         from_attributes = True
+
+
+# --------------------------------------------------------------------------
+# Admin: PersonaSession
+# --------------------------------------------------------------------------
+
+class AdminPersonaSessionPairListItem(BaseModel):
+    ai_persona_id: int
+    ai_persona_name: str
+    human_persona_id: int
+    human_persona_name: str
+    fork_count: int
+    any_fork_blocked: bool
+    latest_updated_at: datetime.datetime
+
+class AdminPersonaSessionForkItem(BaseModel):
+    id: int
+    is_blocked: bool
+    block_reason: Optional[str] = None
+    blocked_until: Optional[datetime.datetime] = None
+    turn_count: int
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    class Config:
+        from_attributes = True
+
+class AdminPersonaSessionDetail(BaseModel):
+    id: int
+    ai_persona_id: int
+    human_persona_id: int
+    arousal: float
+    patience: float
+    mood: float
+    rapport: float
+    curiosity: float
+    last_subject: Optional[str] = None
+    topic_repeat_streak: int
+    turn_count: int
+    violation_count: int
+    is_blocked: bool
+    block_reason: Optional[str] = None
+    blocked_until: Optional[datetime.datetime] = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    linked_message_count: int
+
+    class Config:
+        from_attributes = True
+
+class AdminResetBlockResponse(BaseModel):
+    id: int
+    is_blocked: bool
+    block_reason: Optional[str] = None
+    blocked_until: Optional[datetime.datetime] = None
+    violation_count: int
+
+    class Config:
+        from_attributes = True
+
+
+# --------------------------------------------------------------------------
+# Admin: Persona
+# --------------------------------------------------------------------------
+
+class AdminPersonaListItem(BaseModel):
+    id: int
+    name: str
+    image_url: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+class AdminPersonaDetail(PersonaResponse):
+    is_active: bool
+    is_admin: bool
+
+class AdminPersonaCreate(BaseModel):
+    name: str
+    desc: str
+    traits: TraitsType
+    image_url: str
+    category: Optional[str] = "Custom Creator"
+    email: Optional[str] = None
+    role: Optional[str] = None
+    bio: Optional[str] = None
+    settings: Optional[dict] = None
+    is_active: Optional[bool] = True
+
+class AdminPersonaUpdate(BaseModel):
+    name: Optional[str] = None
+    desc: Optional[str] = None
+    traits: Optional[TraitsType] = None
+    image_url: Optional[str] = None
+    category: Optional[str] = None
+    bio: Optional[str] = None
+    settings: Optional[dict] = None
+    is_active: Optional[bool] = None
+    is_admin: Optional[bool] = None

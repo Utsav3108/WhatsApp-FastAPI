@@ -1,17 +1,18 @@
+import asyncio
 
 from google import genai
 from google.genai import types
-import time
-import asyncio
 from google.genai.errors import ServerError, APIError 
-import os
+
+from app import models, schemas
+
+from app.brain.brain_builder import brain
+from typing import List, Optional, Union
+
+from app.persona.persona_session import PersonaSession
+
 import dotenv
 
-
-from typing import List, Union
-import json
-from app import models
-from app import schemas
 dotenv.load_dotenv()  # Load environment variables from .env file
 
 
@@ -21,11 +22,29 @@ model = dotenv.get_key(dotenv.find_dotenv(), "GEMINI_MODEL")
 
 client = genai.Client(api_key=API_KEY)
 
-# Active chats are now stateless. These stubs are kept for compatibility with socketio_server.py.
-def clear_active_chat(user_id: int, persona_id: int = None, challenge_session_id: int = None):
-    pass
+async def summaries(contents) -> str:
 
-def clear_user_active_chats(user_id: int):
+    
+    print("summary contents: ", contents)
+
+    config = types.GenerateContentConfig(
+        system_instruction="Summaries the conversation for analyses. Remember to keep the main essence of it to be clear.",
+        temperature=0.1
+        )
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config
+        )
+
+        return response.text
+
+    except Exception as e:
+        print(f"Error generating summary from Gemini: {e}")
+
+
     pass
     
 def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTraits, str]) -> tuple[str, str]:
@@ -77,11 +96,7 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
         slider_traits = {
             "confidence": sliders.confidence,
             "humor": sliders.humor,
-            "warmth": sliders.warmth,
-            "curiosity": sliders.curiosity,
             "competitiveness": sliders.competitiveness,
-            "patience": sliders.patience,
-            "emotionality": sliders.emotionality,
             "assertiveness": sliders.assertiveness,
             "intelligence": sliders.intelligence,
             "playfulness": sliders.playfulness
@@ -112,17 +127,6 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
             speech_parts.append(f"Custom Speech Instructions: {speech.custom}")
         if speech_parts:
             sections.append("## SPEECH & TALKING STYLE\n" + "\n".join(f"- {p}" for p in speech_parts))
-
-    # 5. Emotional Profile
-    emotional = data.emotional_profile
-    if emotional:
-        emo_parts = []
-        if emotional.traits:
-            emo_parts.append(f"Emotional Tendencies: {', '.join(emotional.traits)}")
-        if emotional.custom:
-            emo_parts.append(f"Emotional Behaviors: {emotional.custom}")
-        if emo_parts:
-            sections.append("## EMOTIONAL PROFILE\n" + "\n".join(f"- {p}" for p in emo_parts))
 
     # 6. Humor
     humor = data.humor
@@ -162,17 +166,6 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
     if backstory:
         sections.append(f"## BACKSTORY & HISTORY\n{backstory}")
 
-    # 10. Relationship Style
-    rel = data.relationship_style
-    if rel:
-        rel_parts = []
-        if rel.treat_user_as:
-            rel_parts.append(f"Treat User As: {rel.treat_user_as}")
-        if rel.behaviors:
-            rel_parts.append(f"Interaction Stance: {', '.join(rel.behaviors)}")
-        if rel_parts:
-            sections.append("## RELATIONSHIP & INTERACTION MODEL\n" + "\n".join(f"- {p}" for p in rel_parts))
-
     # 11. Response Rules
     rules = data.response_rules
     if rules:
@@ -201,8 +194,9 @@ def format_persona_prompt(persona_name: str, traits: Union[schemas.StructuredTra
 
     return formatted_traits, example_prompt
 
-async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
+async def ask_gemini(question, persona : schemas.PersonaResponse, persona_session: Optional[PersonaSession] = None, user_name = "User", user_role = None, user_bio = None, senderId = 1, past_messages : List[schemas.MessageResponse] = [], challenge : schemas.ChallengeResponse =None, challenge_session_id=None, attempt=0, max_retries=3):
 
+    print("===="*70)
     past_messages = past_messages[-10:]  # Limit to last 10 historical messages
     
     # Example of mapping your DB rows to the Gemini format
@@ -217,7 +211,7 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
     # print("Formatted conversation history for Gemini:", formatted_history)
 
     # Dynamic text based on the attempt number
-# Strict isolation rules injected directly at the top
+    # Strict isolation rules injected directly at the top
     fresh_start_directive = f"""
     # CRITICAL EXECUTION RULES
     - STRICT: ONLY ENTERTAIN USER'S QUESTION about your persona likes/dislikes, interests, and personality. Do NOT hallucinate or invent any user behavior or context.     
@@ -284,46 +278,52 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
                 
         """
     else:
-        user_context_prompt = ""
-        if user_role or user_bio:
-            user_context_prompt = f"""
-        # USER CONTEXT (To personalize your interactions)
-        - USER ROLE: {user_role if user_role else 'Not specified'}
-        - USER BIO/CONTEXT: {user_bio if user_bio else 'Not specified'}
-        - Use this information to tailor your response, referencing their background, interests, or style naturally if appropriate.
-        """
+        # Regular (non-challenge) persona chat — the only path Brain/
+        # PersonaSession is wired into. Challenges use the dedicated
+        # system_instructions built above, independent of Brain (see
+        # CLAUDE.md's "Challenges" section) — previously this branch was
+        # unconditionally overwritten below regardless of `challenge`,
+        # silently discarding the challenge-specific prompt above; fixed by
+        # scoping the brain.build() call to the non-challenge case only.
+        system_instructions = await brain.build(question, persona_session, past_conversation=formatted_history)
 
-        system_instructions = f"""
-        # IDENTITY & CORE PERSONA
-        - PERSONA: You are {persona.name}. You must stay 100% in character at all times. 
-        - DESCRIPTION: {persona.desc}
-        - TRAITS & SPEECH: {formatted_traits}
-        
-        {user_context_prompt}
-        
-        {example_dialogues_prompt}
+        print("System Instructions for Gemini:\n", system_instructions)
 
-        # CHAT INTERFACE & FORMATTING (Strict)
-        - BREVITY: Keep responses short and punchy (1-3 sentences max). Never generate blocks of text.
-        - STYLE: Casual, direct, and conversational. Do not sound like an AI assistant.
-        
-        # ANTI-HALLUCINATION & REALITY ANCHORS (Strict)
-    - ZERO INVENTION: React strictly and exclusively to the user's exact text. Do NOT hallucinate repetitions, physical actions, or tones that the user did not explicitly provide.
-    - HUMOR BOUNDARIES: If a joke opportunity exists, take it, but NEVER at the expense of inventing user behavior. Rely on self-deprecation, observational humor about the startup setting, or witty wordplay based *only* on what was literally just said.
-    - HANDLING BREVITY: If the user gives a very short response (e.g., "ok", "sure"), do not analyze or comment on their brevity. Instead, take the conversational lead. Drive the scene forward by throwing out a ridiculous hypothetical, a self-deprecating anecdote, or a sharp, in-character question.
-    - CONVERSATION FLOW: Treat every user input as a clear, single statement. Do not reference your own previous misunderstandings or turn past jokes into repetitive running gags.
-            
-        """
-
+        persona_session.print_states()
 
     config = types.GenerateContentConfig(
-        system_instruction=system_instructions
+        system_instruction=system_instructions,
+        temperature=0.1,
+        top_p=1.0,
+        top_k=30,
+        safety_settings=[
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        ),
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        ),
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        ),
+        types.SafetySetting(
+            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+        ),
+    ]
     )
 
     contents = formatted_history + [{
         "role": "user",
         "parts": [{"text": question}]
     }]
+
+    # print("contents: ", contents)
+
+    # active_persona.summary = await summaries(formatted_history)
 
     try:
         response = await client.aio.models.generate_content(
@@ -337,11 +337,16 @@ async def ask_gemini(question, persona : schemas.PersonaResponse, user_name = "U
         print(f"Error generating response from Gemini: {e}")
         ai_text = "Can we continue this conversation later? I'm having trouble in my stomach and need to step away for a moment."
 
+    print("User's Message: ", question)
+    print("Donald Trump: ", ai_text)
+    print("===="*70)
+
     MessageCreate_data = {
         "sender_id": persona.id,
         "receiver_id": senderId,
         "text": ai_text,
-        "challenge_session_id": challenge_session_id
+        "challenge_session_id": challenge_session_id,
+        "persona_session_id": persona_session.session_id if persona_session else None,
     }
 
     MessageCreate_obj = schemas.MessageCreate(**MessageCreate_data)
@@ -534,3 +539,4 @@ async def evaluate_challenge(
         except APIError as e:
           # print(f"Gemini Evaluation API Error: {e}")
             raise e
+        

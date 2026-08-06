@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import schemas, models, crud
 from app.database import get_db
 
-router = APIRouter()
+router = APIRouter(tags=["Category"])
 
 @router.get("/categories", response_model=list[schemas.CategoryResponse])
 async def get_all_categories(db: AsyncSession = Depends(get_db)):

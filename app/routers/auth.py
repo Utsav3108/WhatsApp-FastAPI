@@ -5,13 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import schemas, crud, models
 from app.database import get_db
 
-router = APIRouter()
+router = APIRouter(tags=["Auth"])
 security = HTTPBearer()
 
 async def verify_google_token(id_token: str) -> dict:
     if id_token == "example_jwt_token":
         return {
-            "name": "Developer Admin",
+            "name": "Utsav Pandya",
             "picture": "https://ui-avatars.com/api/?name=Dev+Admin&background=random",
             "email": "devadmin@example.com"
         }
@@ -45,6 +45,8 @@ async def get_current_user(
         )
     
     name = payload.get("name")
+
+    print("admin persona Name: ", name)
     if not name:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -92,16 +94,5 @@ async def google_login(login_in: schemas.GoogleLoginRequest, db: AsyncSession = 
         )
         db_persona = await crud.create_persona(db, persona_in)
     else:
-        # Sync email and image if changed
-        updated = False
-        if db_persona.email != email:
-            db_persona.email = email
-            updated = True
-        if db_persona.image_url != image_url:
-            db_persona.image_url = image_url
-            updated = True
-        if updated:
-            db.add(db_persona)
-            await db.commit()
-            await db.refresh(db_persona)
+        db_persona = await crud.update_persona_contact_info(db, db_persona, email, image_url)
     return db_persona

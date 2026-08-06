@@ -1,5 +1,6 @@
 from enum import Enum
-
+from typing import Dict, Any, Optional
+from pydantic import BaseModel, Field
 
 class ChallengeResult(str, Enum):
 
@@ -31,3 +32,5 @@ class ChallengeResult(str, Enum):
     ABANDONED = "abandoned"
 
     ACTIVE = "active"
+
+

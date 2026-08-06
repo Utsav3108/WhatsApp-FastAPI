@@ -6,7 +6,6 @@ import traceback
 from fastapi import Depends
 import socketio
 import asyncio
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import enums
@@ -16,12 +15,14 @@ import app.crud as crud
 import app.cache as cache
 from app.gemini import ask_gemini, evaluate_challenge
 from app.database import SessionLocal
-from app.services import challenge_service, challenge_session, persona_service
+from app.services import challenge_service, challenge_session
 from app.schemas import ChallengeCompletion
 
 from app.enums import ChallengeResult
 
-from app.services import message_service, challenge_session as challenge_session_service
+from app.services import message_service
+from app.persona import persona_service, persona_session_crud
+from app.persona.persona_session import PersonaSession, PersonaSessionMismatchError
 
 
 # Socket.IO server setup with optional Redis support
@@ -29,10 +30,14 @@ redis_url = os.getenv("REDIS_URL")
 if redis_url:
   # print(f"Connecting Socket.IO to Redis at {redis_url}")
     client_manager = socketio.AsyncRedisManager(redis_url)
-    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*', client_manager=client_manager)
+    # cors_allowed_origins=[] disables python-socketio's own CORS header
+    # injection — FastAPI's CORSMiddleware in main.py already wraps this
+    # mounted sub-app, and having both add Access-Control-Allow-Origin
+    # produces a duplicate header that browsers reject outright.
+    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins=[], client_manager=client_manager)
 else:
   # print("Using in-memory Socket.IO manager.")
-    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+    sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins=[])
 
 sio_app = socketio.ASGIApp(sio)
 manager = ConnectionManager()
@@ -77,23 +82,42 @@ async def leave_chat(sid, data):
     user_id = data.get("user_id")
     persona_id = data.get("persona_id")
     challenge_session_id = data.get("challenge_session_id")
+    client_persona_session_id = data.get("persona_session_id")
     if user_id:
         # Cancel in-flight Gemini task for this specific chat
         if challenge_session_id:
             chat_key = f"user_{user_id}_session_{challenge_session_id}"
         elif persona_id:
-            chat_key = f"user_{user_id}_persona_{persona_id}"
+            # Mirrors handle_send_message's persona_session-keyed chat_key —
+            # resolve the same session id for this pair so the cancellation
+            # lookup actually matches. If the client supplies a
+            # persona_session_id, it must belong to this pair or it's
+            # rejected (persona_session_id=None) rather than silently
+            # falling back to "latest" — that could cancel the wrong fork's
+            # in-flight task.
+            async with SessionLocal() as db:
+                if client_persona_session_id is not None:
+                    row = await persona_session_crud.get_persona_session_by_id_for_pair(
+                        db, client_persona_session_id,
+                        ai_persona_id=persona_id, human_persona_id=user_id,
+                    )
+                    persona_session_id = row.id if row is not None else None
+                else:
+                    persona_session_id = await persona_session_crud.get_latest_persona_session_id(
+                        db, ai_persona_id=persona_id, human_persona_id=user_id
+                    )
+            chat_key = f"user_{user_id}_persona_session_{persona_session_id}" if persona_session_id is not None else None
         else:
             chat_key = None
-        
+
         if chat_key:
             task = _background_tasks.pop(chat_key, None)
             if task and not task.done():
                 task.cancel()
                 print(f"Cancelled in-flight task for: {chat_key}")
 
-        from app.gemini import clear_active_chat
-        clear_active_chat(user_id, persona_id=persona_id, challenge_session_id=challenge_session_id)
+        # from app.gemini import clear_active_chat
+        # clear_active_chat(user_id, persona_id=persona_id, challenge_session_id=challenge_session_id)
 
 @sio.event
 async def join(sid, data):
@@ -103,6 +127,51 @@ async def join(sid, data):
         # Join a user-specific room for real-time persona chats
         await sio.enter_room(sid, f"user:{user_id}")
       # print(f"User {user_id} joined room user:{user_id}")
+
+
+@sio.event
+async def check_unblock_status(sid, data):
+    """
+    On-demand poll: "is this persona still blocked, right now." Reuses
+    PersonaSession.load()'s existing lazy unblock-on-load logic entirely —
+    no new unblock logic here, no save() (nothing needs persisting; the
+    next real turn's save() will reflect the cleared state).
+
+    Always acks the requesting client with the result (python-socketio ack
+    callback) so the caller doesn't need a client-side timeout to
+    distinguish "still blocked" / "not found" from "reply hasn't arrived
+    yet". Also keeps emitting 'persona_unblocked' privately (room=sid) on
+    the unblocked path for existing listeners.
+    """
+    user_id = data.get("user_id")
+    persona_id = data.get("persona_id")
+    persona_session_id = data.get("persona_session_id")
+    if not user_id or not persona_id:
+        return {"error": "invalid_payload"}
+
+    async with SessionLocal() as db:
+        try:
+            session = await PersonaSession.load(
+                db, ai_persona_id=persona_id, human_persona_id=user_id,
+                persona_session_id=persona_session_id,
+            )
+        except PersonaSessionMismatchError:
+            return {"error": "not_found"}
+
+    if session.is_blocked:
+        return {
+            "blocked": True,
+            "persona_session_id": session.session_id,
+            "block_reason": session.block_reason,
+            "blocked_until": session.blocked_until.isoformat(),
+        }
+
+    await sio.emit(
+        "persona_unblocked",
+        {"persona_session_id": session.session_id},
+        room=sid,
+    )
+    return {"blocked": False, "persona_session_id": session.session_id}
 
 
 @sio.event
@@ -227,12 +296,7 @@ async def handle_send_message(payload, db: AsyncSession, sid):
     #     f"to persona {message_in.receiver_id}: {message_in.text}"
     # )
 
-    session_result = await db.execute(
-        select(crud.models.ChallengeSession).filter(
-            crud.models.ChallengeSession.id == message_in.challenge_session_id
-        )
-    )
-    challenge_session = session_result.scalars().first()
+    challenge_session = await crud.get_challenge_session_by_id(db, message_in.challenge_session_id)
 
     challenge = None
     if challenge_session:
@@ -264,6 +328,37 @@ async def handle_send_message(payload, db: AsyncSession, sid):
                 )
                 return
 
+    # Regular (non-challenge) chat: resolve the persona_sessions row for this
+    # (ai_persona, human_persona) pair up front. If this is the pair's
+    # first-ever message, save() immediately to create the row — this
+    # guarantees chat_key and both the user's message and the AI's reply
+    # can be stamped with a real session id, no fallback branch needed.
+    # Challenges are out of scope for Brain/PersonaSession (see CLAUDE.md);
+    # persona_session stays None for them, matching ask_gemini's contract.
+    persona_session: Optional[PersonaSession] = None
+    if not challenge_session:
+        try:
+            persona_session = await PersonaSession.load(
+                db,
+                ai_persona_id=message_in.receiver_id,
+                human_persona_id=message_in.sender_id,
+                persona_session_id=message_in.persona_session_id,
+            )
+        except PersonaSessionMismatchError:
+            # Client-supplied persona_session_id doesn't belong to this
+            # (receiver_id, sender_id) pair — reject the message entirely
+            # rather than silently falling back to a different fork.
+            print(
+                f"Rejected send_message: persona_session_id {message_in.persona_session_id} "
+                f"does not belong to receiver {message_in.receiver_id}/sender {message_in.sender_id}"
+            )
+            return
+        if persona_session.session_id is None:
+            # Pure identity creation — Brain.build() hasn't run yet, so
+            # nothing has mutated arousal/patience/mood this turn.
+            await persona_session.save(db, state_changed=False)
+        message_in.persona_session_id = persona_session.session_id
+
     # Save user's message
     raw_message = await crud.create_message(db, message_in)
     message = schemas.MessageResponse.model_validate(raw_message)
@@ -276,21 +371,25 @@ async def handle_send_message(payload, db: AsyncSession, sid):
         past_messages = [m for m in db_history if m.id != message.id]
 
     else:
-        # Fetch last 11 messages (10 history + current user message)
-        db_msgs = await crud.get_messages_between_users(
-            db,
-            message.sender_id,
-            message.receiver_id,
-            limit=11
+        # Fetch last 11 messages (10 history + current user message), scoped
+        # to this persona_session (fork) rather than the raw sender/receiver
+        # pair — so history from a different fork (e.g. a blocked session
+        # the user started fresh from via PersonaSession.create_new()) never
+        # leaks into this fork's Gemini context.
+        past_messages = await message_service.get_messages_by_persona_session_id(
+            db, persona_session.session_id, limit=11
         )
-        past_messages = [
-            schemas.MessageResponse.model_validate(m)
-            for m in db_msgs
-            if m.id != message.id
-        ]
+        past_messages = [m for m in past_messages if m.id != message.id]
 
-    # Build the chat_key so we can track the background task
-    chat_key = f"user_{message_in.sender_id}_session_{challenge_session.id}" if challenge_session else f"user_{message_in.sender_id}_persona_{message_in.receiver_id}"
+    # Build the chat_key so we can track the background task. Keying on the
+    # resolved persona_session id (rather than the old receiver_id-based
+    # key) fixes cross-fork collisions: two forks of the same
+    # (sender, receiver) pair used to collapse onto the same key and cancel
+    # each other's in-flight replies.
+    chat_key = (
+        f"user_{message_in.sender_id}_session_{challenge_session.id}" if challenge_session
+        else f"user_{message_in.sender_id}_persona_session_{persona_session.session_id}"
+    )
 
     # Cancel any previous in-flight task for the same chat to avoid parallel Gemini calls
     prev_task = _background_tasks.pop(chat_key, None)
@@ -303,7 +402,7 @@ async def handle_send_message(payload, db: AsyncSession, sid):
         )
     else:
         task = asyncio.create_task(
-            handle_gemini_response(message, past_messages, sid)
+            handle_gemini_response(message, past_messages, sid, persona_session=persona_session)
         )
 
     # Store the task reference so leave_chat / disconnect can cancel it
@@ -315,18 +414,21 @@ async def handle_send_message(payload, db: AsyncSession, sid):
     task.add_done_callback(_on_done)
 
 
-async def handle_gemini_response(message: schemas.MessageCreate, past_messages, sid, challenge: Optional[schemas.ChallengeResponse] = None, challenge_session_id=None):
+async def handle_gemini_response(message: schemas.MessageCreate, past_messages, sid, challenge: Optional[schemas.ChallengeResponse] = None, challenge_session_id=None, persona_session: Optional[PersonaSession] = None):
     """
     Background task. DB sessions are opened only for brief read/write windows;
     both Gemini calls (ask_gemini, evaluate_challenge) run with no session held.
+    persona_session was already loaded by handle_send_message (regular chat
+    only) — update()/compile_prompt() mutate it in-memory during PHASE 2
+    below (no DB session held), and it's persisted in PHASE 3's write window.
     """
     try:
         # ---------- PHASE 1: READS ----------
         async with SessionLocal() as db:
             persona = await persona_service.get_persona_by_id(db, message.receiver_id)
-            
+
             try:
- 
+
                 user_persona = await persona_service.get_persona_by_id(db, message.sender_id)
                 user_name = user_persona.name if user_persona else "User"
             except ValueError:
@@ -344,6 +446,7 @@ async def handle_gemini_response(message: schemas.MessageCreate, past_messages, 
         gemini_response_in = await ask_gemini(
             message.text,
             persona,
+            persona_session=persona_session,
             user_name=user_name,
             user_role=user_persona.role if user_persona else None,
             user_bio=user_persona.bio if user_persona else None,
@@ -360,14 +463,23 @@ async def handle_gemini_response(message: schemas.MessageCreate, past_messages, 
                 gemini_message = await crud.create_message(db, gemini_response_in)
                 validated_gemini_response = schemas.MessageResponse.model_validate(gemini_message)
 
+                if persona_session is not None:
+                    # Persist this turn's mutated state (update()/
+                    # compile_prompt() ran in-memory during PHASE 2, no DB
+                    # session held). turn_state_mutated is True only if
+                    # update()/register_violation() actually ran this turn
+                    # (normal turn, or harmful/sexual-content violation) —
+                    # False for the hard-gate short-circuit and the
+                    # language-check early return in Brain.build(), neither
+                    # of which touch arousal/patience/mood/curiosity.
+                    # updated_at still bumps unconditionally either way, so
+                    # a poked-but-untouched session still ranks correctly
+                    # as "most recent" for fork selection.
+                    await persona_session.save(db, state_changed=persona_session.turn_state_mutated)
+
                 is_session_active = True
                 if challenge and challenge_session_id:
-                    session_res = await db.execute(
-                        select(crud.models.ChallengeSession).filter(
-                            crud.models.ChallengeSession.id == challenge_session_id
-                        )
-                    )
-                    session = session_res.scalars().first()
+                    session = await crud.get_challenge_session_by_id(db, challenge_session_id)
                     if session and session.status != 'active':
                         is_session_active = False
             except Exception:
@@ -383,11 +495,25 @@ async def handle_gemini_response(message: schemas.MessageCreate, past_messages, 
             if message.challenge_session_id
             else f"user:{validated_gemini_response.receiver_id}"
         )
+
         await sio.emit(
             "receive_message",
             validated_gemini_response.model_dump_json(),
             room=room
         )
+
+        if persona_session is not None and persona_session.just_blocked:
+            await sio.emit(
+                "persona_blocked",
+                {
+                    "persona_session_id": persona_session.session_id,
+                    "block_reason": persona_session.block_reason,
+                    "blocked_until": persona_session.blocked_until.isoformat(),
+                },
+                room=room,
+            )
+
+
         past_messages.append(message)
         past_messages.append(validated_gemini_response)
 

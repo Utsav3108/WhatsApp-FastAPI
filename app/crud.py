@@ -54,6 +54,20 @@ async def get_messages_by_challenge_session_id(db: AsyncSession, challenge_sessi
     messages.reverse()
     return messages
 
+async def get_messages_by_persona_session_id(db: AsyncSession, persona_session_id: int, limit: int | None = 10):
+    stmt = select(models.Message).filter(
+        models.Message.persona_session_id == persona_session_id
+    ).order_by(models.Message.timestamp.desc())
+
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
+    result = await db.execute(stmt)
+    messages = result.scalars().all()
+    # Reverse to return in chronological order
+    messages.reverse()
+    return messages
+
 async def get_messages_paginated_by_session(
     db: AsyncSession,
     challenge_session_id: int,
@@ -92,6 +106,44 @@ async def get_messages_paginated_between_users(
             ((models.Message.sender_id == user2_id) & (models.Message.receiver_id == user1_id))
         ) &
         (models.Message.challenge_session_id == None)
+    )
+    offset = (page - 1) * page_size
+
+    total_result = await db.execute(select(func.count(models.Message.id)).filter(base_filter))
+    total_count = total_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.Message)
+        .filter(base_filter)
+        .order_by(models.Message.timestamp.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    messages = result.scalars().all()
+    messages.reverse()
+    return messages, total_count
+
+async def get_messages_paginated_by_persona_session_id(
+    db: AsyncSession,
+    persona_session_id: int,
+    requesting_user_id: int,
+    page: int = 1,
+    page_size: int = 10,
+) -> tuple[list, int]:
+    """
+    Paginated fetch scoped to one specific persona_session (fork) — unlike
+    get_messages_paginated_between_users, which returns every fork for a
+    pair mixed together. requesting_user_id is folded directly into the
+    filter (must be sender or receiver on the matching rows) rather than a
+    separate ownership lookup, so a non-participant querying someone
+    else's persona_session_id just gets an empty page back.
+    """
+    base_filter = (
+        (models.Message.persona_session_id == persona_session_id) &
+        (
+            (models.Message.sender_id == requesting_user_id) |
+            (models.Message.receiver_id == requesting_user_id)
+        )
     )
     offset = (page - 1) * page_size
 
@@ -217,6 +269,21 @@ async def create_persona(db: AsyncSession, persona: schemas.PersonaCreate):
     db.add(db_persona)
     await db.commit()
     await db.refresh(db_persona)
+    return db_persona
+
+async def update_persona_contact_info(db: AsyncSession, db_persona: models.Persona, email: str, image_url: str):
+    """Syncs email/image_url from an OAuth provider on login if they've changed. Returns True if a write happened."""
+    updated = False
+    if db_persona.email != email:
+        db_persona.email = email
+        updated = True
+    if db_persona.image_url != image_url:
+        db_persona.image_url = image_url
+        updated = True
+    if updated:
+        db.add(db_persona)
+        await db.commit()
+        await db.refresh(db_persona)
     return db_persona
 
 async def update_user_profile(db: AsyncSession, user_id: int, profile_in: schemas.UserProfileUpdate):
@@ -553,6 +620,26 @@ async def get_challenge_session_by_id(db: AsyncSession, session_id: int):
         select(ChallengeSession).filter(ChallengeSession.id == session_id)
     )
     return result.scalars().first()
+
+async def get_active_challenge_sessions_by_user(db: AsyncSession, user_id: int, limit: int = 50, offset: int = 0):
+    result = await db.execute(
+        select(ChallengeSession)
+        .filter(ChallengeSession.user_id == user_id, ChallengeSession.status == "active")
+        .limit(limit)
+        .offset(offset)
+    )
+    return result.scalars().all()
+
+async def pause_challenge_session(db: AsyncSession, session: ChallengeSession):
+    from datetime import datetime, timezone
+    if session.status == 'active' and session.last_resumed_at:
+        now = datetime.now(timezone.utc)
+        delta = (now - session.last_resumed_at).total_seconds()
+        session.elapsed_seconds += int(delta)
+        session.last_resumed_at = None
+        await db.commit()
+        await db.refresh(session)
+    return session
 
 async def get_existing_session(db: AsyncSession, user_id: int, challenge_id: str):
     result = await db.execute(

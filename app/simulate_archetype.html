@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Persona State Machine Simulator</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;500;600&display=swap');
+
+    :root {
+      --bg-base: #111111;
+      --bg-panel: #1A1A1A;
+      --bg-input: #242424;
+      --text-main: #EDEDED;
+      --text-muted: #888888;
+      --accent-blue: #3B82F6;
+      --accent-red: #EF4444;
+      --accent-green: #10B981;
+      --accent-yellow: #F59E0B;
+      --border: #333333;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: 'Inter', sans-serif;
+      padding: 2rem;
+      display: flex;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 300px 1fr 300px;
+      gap: 1.5rem;
+      max-width: 1200px;
+      width: 100%;
+    }
+
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 0.5rem;}
+    
+    label { font-size: 0.85rem; font-weight: 500; display: flex; justify-content: space-between; margin-bottom: 0.25rem;}
+    
+    input[type=range] { width: 100%; margin-bottom: 1rem; accent-color: var(--accent-blue); }
+    
+    /* Middle: Chat */
+    .chat-window { flex-grow: 1; background: var(--bg-input); border-radius: 6px; padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; min-height: 300px; border: 1px solid var(--border); font-family: 'Fira Code', monospace; font-size: 0.85rem;}
+    
+    .msg { padding: 0.75rem; border-radius: 4px; background: var(--bg-panel); border-left: 3px solid var(--border); }
+    .msg.user { border-left-color: var(--accent-blue); }
+    .msg.system { color: var(--text-muted); font-size: 0.75rem; border: none; background: transparent; padding: 0; text-align: center;}
+    .msg.error { border-left-color: var(--accent-red); color: var(--accent-red); }
+
+    .input-area { display: flex; gap: 0.5rem; }
+    input[type=text] { flex-grow: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-main); padding: 0.75rem; border-radius: 4px; font-family: 'Inter', sans-serif;}
+    button { background: var(--accent-blue); color: #fff; border: none; padding: 0.75rem 1.25rem; border-radius: 4px; cursor: pointer; font-weight: 600; transition: opacity 0.2s;}
+    button:hover { opacity: 0.9; }
+    button.secondary { background: transparent; border: 1px solid var(--accent-blue); color: var(--accent-blue); }
+
+    /* Right: State Metrics */
+    .metric { display: flex; flex-direction: column; gap: 0.25rem; }
+    .metric-header { display: flex; justify-content: space-between; font-family: 'Fira Code', monospace; font-size: 0.85rem; }
+    .bar-bg { height: 8px; background: var(--bg-input); border-radius: 4px; overflow: hidden; }
+    .bar-fill { height: 100%; transition: width 0.3s, background-color 0.3s; }
+    
+    .status-banner { padding: 0.75rem; border-radius: 4px; font-weight: 600; text-align: center; font-size: 0.9rem; margin-top: auto;}
+    .status-active { background: rgba(16, 185, 129, 0.1); color: var(--accent-green); border: 1px solid var(--accent-green);}
+    .status-blocked { background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border: 1px solid var(--accent-red); }
+
+    .delta { font-size: 0.75rem; font-family: 'Fira Code', monospace; display: block; margin-top: 0.25rem;}
+    .delta.pos { color: var(--accent-green); }
+    .delta.neg { color: var(--accent-red); }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  
+  <!-- LEFT: Trait Sliders -->
+  <div class="panel">
+    <h2>Persona Traits</h2>
+    <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">Adjust traits. Changes apply on next session fork.</p>
+    
+    <div>
+      <label>Threat Sensitivity <span id="ts-val">75</span></label>
+      <input type="range" id="ts" min="0" max="100" value="75" oninput="updateUI()">
+      
+      <label>Self Regulation <span id="sr-val">30</span></label>
+      <input type="range" id="sr" min="1" max="100" value="30" oninput="updateUI()"> <!-- Min 1 to prevent divide by zero -->
+      
+      <label>Novelty Drive <span id="nd-val">55</span></label>
+      <input type="range" id="nd" min="0" max="100" value="55" oninput="updateUI()">
+      
+      <label>Baseline Security <span id="bs-val">80</span></label>
+      <input type="range" id="bs" min="0" max="100" value="80" oninput="updateUI()">
+      
+      <label>Empathic Resonance <span id="er-val">25</span></label>
+      <input type="range" id="er" min="0" max="100" value="25" oninput="updateUI()">
+    </div>
+
+    <button class="secondary" onclick="forkSession()" style="margin-top: auto;">Fork New Session</button>
+  </div>
+
+  <!-- MIDDLE: Interaction -->
+  <div class="panel">
+    <h2>Interaction Stream</h2>
+    <div class="chat-window" id="chat"></div>
+    <div class="input-area">
+      <input type="text" id="msgInput" placeholder="Type a message (try 'excited', 'joke', 'sorry')" onkeypress="if(event.key === 'Enter') sendMessage()">
+      <button onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: State Machine -->
+  <div class="panel">
+    <h2>Session State</h2>
+    
+    <div class="metric">
+      <div class="metric-header"><span>Arousal</span> <span id="val-arousal">0</span></div>
+      <div class="bar-bg"><div class="bar-fill" id="bar-arousal" style="background: var(--accent-red); width: 0%;"></div></div>
+    </div>
+    
+    <div class="metric">
+      <div class="metric-header"><span>Patience</span> <span id="val-patience">0</span></div>
+      <div class="bar-bg"><div class="bar-fill" id="bar-patience" style="background: var(--accent-blue); width: 0%;"></div></div>
+    </div>
+    
+    <div class="metric">
+      <div class="metric-header"><span>Mood</span> <span id="val-mood">0</span></div>
+      <div class="bar-bg"><div class="bar-fill" id="bar-mood" style="background: var(--accent-yellow); width: 0%;"></div></div>
+    </div>
+    
+    <div class="metric">
+      <div class="metric-header"><span>Rapport</span> <span id="val-rapport">0</span></div>
+      <div class="bar-bg"><div class="bar-fill" id="bar-rapport" style="background: var(--accent-green); width: 0%;"></div></div>
+    </div>
+
+    <div id="statusBanner" class="status-banner status-active">
+      SESSION ACTIVE
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // State Math Variables
+  const BLOCK_THRESHOLD = 85;
+  let state = { arousal: 0, patience: 0, mood: 0, rapport: 0, blocked: false };
+  let traits = {};
+
+  // Mock NLP Classifier based on keywords
+  function classifyMessage(text) {
+    const t = text.toLowerCase();
+    if (t.match(/(joke|hate|terrible|bad|worst|don't think|provoke)/)) return { type: 'Provoke', intensity: t.includes('joke') ? 80 : 40 };
+    if (t.match(/(sorry|apologize|mistake|fresh start)/)) return { type: 'Apologize', intensity: 60 };
+    if (t.match(/(excited|respect|love|great|good|compliment)/)) return { type: 'Compliment', intensity: t.includes('respect') ? 30 : 20 };
+    return { type: 'Neutral', intensity: 10 };
+  }
+
+  function updateUI() {
+    // Update slider readouts
+    ['ts', 'sr', 'nd', 'bs', 'er'].forEach(id => {
+      document.getElementById(`${id}-val`).innerText = document.getElementById(id).value;
+    });
+  }
+
+  function getTraits() {
+    return {
+      TS: parseFloat(document.getElementById('ts').value),
+      SR: parseFloat(document.getElementById('sr').value),
+      ND: parseFloat(document.getElementById('nd').value),
+      BS: parseFloat(document.getElementById('bs').value),
+      ER: parseFloat(document.getElementById('er').value)
+    };
+  }
+
+  function forkSession() {
+    traits = getTraits();
+    
+    // Init Math exactly as defined
+    state.arousal = Math.max(0, 30 - (traits.BS / 4));
+    state.patience = Math.min(100, 40 + (traits.SR / 2));
+    state.mood = 0;
+    state.rapport = 0;
+    state.blocked = false;
+
+    document.getElementById('chat').innerHTML = `<div class="msg system">--- Session Forked (Arousal: ${state.arousal}, Patience: ${state.patience}) ---</div>`;
+    renderState();
+  }
+
+  function sendMessage() {
+    const input = document.getElementById('msgInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+
+    if (state.blocked) {
+      addChat(`[LOCKED] ${text}`, `Session blocked. Remaining ≈ 3 days. Action rejected.`, 'error');
+      return;
+    }
+
+    const event = classifyMessage(text);
+    let deltaTxt = `[${event.type}, ${event.intensity}] `;
+    
+    let oldArousal = state.arousal, oldPatience = state.patience, oldMood = state.mood, oldRapport = state.rapport;
+
+    // The Logic Engine
+    if (event.type === 'Compliment') {
+      state.mood += event.intensity * 0.25;
+      state.rapport += event.intensity * 0.15;
+    } 
+    else if (event.type === 'Provoke') {
+      state.arousal += (traits.TS / 100) * event.intensity;
+      state.patience -= (event.intensity / traits.SR);
+    } 
+    else if (event.type === 'Apologize') {
+      let forgiveness_rate = traits.ER * (traits.BS / 100);
+      state.arousal -= (forgiveness_rate / 100) * event.intensity;
+    }
+
+    // Clamp values 0-100
+    state.arousal = Math.max(0, Math.min(100, state.arousal));
+    state.patience = Math.max(0, Math.min(100, state.patience));
+    state.mood = Math.max(0, Math.min(100, state.mood));
+    state.rapport = Math.max(0, Math.min(100, state.rapport));
+
+    // Calculate Deltas for log
+    const dA = (state.arousal - oldArousal).toFixed(1);
+    const dP = (state.patience - oldPatience).toFixed(1);
+    const dM = (state.mood - oldMood).toFixed(1);
+    const dR = (state.rapport - oldRapport).toFixed(1);
+
+    if (Math.abs(dA) > 0) deltaTxt += `Arousal ${dA > 0 ? '+'+dA : dA}. `;
+    if (Math.abs(dP) > 0) deltaTxt += `Patience ${dP > 0 ? '+'+dP : dP}. `;
+    if (Math.abs(dM) > 0) deltaTxt += `Mood ${dM > 0 ? '+'+dM : dM}. `;
+    if (Math.abs(dR) > 0) deltaTxt += `Rapport ${dR > 0 ? '+'+dR : dR}. `;
+
+    // Block Check
+    if (state.arousal >= BLOCK_THRESHOLD) {
+      state.blocked = true;
+      deltaTxt += `<br><strong style="color:var(--accent-red);">THRESHOLD BREACH (>85). SESSION BLOCKED.</strong>`;
+    }
+
+    addChat(text, deltaTxt, 'user');
+    renderState();
+  }
+
+  function addChat(text, meta, type) {
+    const chat = document.getElementById('chat');
+    chat.innerHTML += `
+      <div class="msg ${type}">
+        <div>"${text}"</div>
+        <div class="delta ${meta.includes('+') ? 'pos' : (meta.includes('-') ? 'neg' : '')}">${meta}</div>
+      </div>
+    `;
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function renderState() {
+    ['arousal', 'patience', 'mood', 'rapport'].forEach(key => {
+      document.getElementById(`val-${key}`).innerText = state[key].toFixed(1);
+      document.getElementById(`bar-${key}`).style.width = `${state[key]}%`;
+    });
+
+    const banner = document.getElementById('statusBanner');
+    if (state.blocked) {
+      banner.className = 'status-banner status-blocked';
+      banner.innerText = 'SESSION BLOCKED (3 DAYS)';
+    } else {
+      banner.className = 'status-banner status-active';
+      banner.innerText = 'SESSION ACTIVE';
+    }
+  }
+
+  // Init on load
+  forkSession();
+  updateUI();
+</script>
+
+</body>
+</html>

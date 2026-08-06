@@ -1,8 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud_challenge_attempt import create_challenge_attempt
 from app import crud, enums, schemas
-from app.services import message_service, persona_service, challenge_service
+from app.services import challenge_service
 from app.gemini import create_storyline
+from app.persona import persona_service
 
 async def setup_challenge_session(
     db: AsyncSession,

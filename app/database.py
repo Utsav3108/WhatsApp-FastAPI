@@ -15,7 +15,7 @@ POSTGRES_PORT = dotenv.get_key(dotenv.find_dotenv(), "POSTGRES_PORT")
 
 # DATABASE_URL = f"postgresql+asyncpg://:{POSTGRES_PASSWORD}@localhost:{POSTGRES_DB}"
 DATABASE_URL = dotenv.get_key(dotenv.find_dotenv(), "POSTGRES_URL")
-print("DATABASE_URL:", DATABASE_URL)  # Debugging line to check the constructed URL
+# print("DATABASE_URL:", DATABASE_URL)  # Debugging line to check the constructed URL
 
 
 def _sanitize_database_url(url: str) -> str:

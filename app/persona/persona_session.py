@@ -5,6 +5,7 @@ from app.brain.emotion_engine import EmotionEngine, clamp, CuriosityZone
 from typing import Dict, List, Optional
 from app.brain.context import BrainContext
 from app.brain.brain_component import BrainComponent
+from app.persona.persona_prompt_formatting import format_persona_prompt
 
 
 # Maximum length of an auto-expiring block. Both triggers (arousal
@@ -25,10 +26,20 @@ class PersonaSessionMismatchError(Exception):
 
 class PersonaSession(BrainComponent):
     def __init__(self, name: str, traits: Dict[str, float], expertise_topics: Optional[List[str]] = None,
-                 violation_block_threshold: int = 2, knowledge_cutoff_date: Optional[str] = None):
+                 violation_block_threshold: int = 2, knowledge_cutoff_date: Optional[str] = None,
+                 persona_profile: str = "", example_dialogues_prompt: str = ""):
 
         self.summary = ""
         self.persona = name
+
+        # Static identity/personality/backstory profile, formatted once from
+        # the AI persona's full StructuredTraits at _baseline() time (see
+        # format_persona_prompt) — distinct from the 5 numeric brain traits
+        # above, which drive the emotional state math. Empty for sessions
+        # constructed directly (e.g. tests); compile_prompt simply omits the
+        # section in that case, same degrade pattern as self.user_info.
+        self.persona_profile: str = persona_profile
+        self.example_dialogues_prompt: str = example_dialogues_prompt
 
         self.languages = ["english"]
 
@@ -178,11 +189,15 @@ class PersonaSession(BrainComponent):
 
         knowledge_cutoff_date = getattr(ai_traits, "knowledge_cutoff_date", None)
 
+        persona_profile, example_dialogues_prompt = format_persona_prompt(ai_persona.name, ai_traits)
+
         session = cls(
             name=ai_persona.name,
             traits=brain_traits,
             expertise_topics=expertise,
             knowledge_cutoff_date=knowledge_cutoff_date,
+            persona_profile=persona_profile,
+            example_dialogues_prompt=example_dialogues_prompt,
         )
         session.ai_persona_id = ai_persona_id
         session.human_persona_id = human_persona_id
@@ -632,8 +647,15 @@ class PersonaSession(BrainComponent):
         else:
             knowledge_str = "no knowledge of what user is saying."  # defensive; should be unreachable
 
+        profile_section = ""
+        if self.persona_profile:
+            profile_section += f"# {self.persona}'S PERSONA PROFILE (WHO YOU ARE)\n{self.persona_profile}\n\n"
+        if self.example_dialogues_prompt:
+            profile_section += f"{self.example_dialogues_prompt}\n\n"
+
         clause = (
 
+            f"{profile_section}"
             f"User Information\n"
             f"{self.user_info}\n"
             f"CURRENT PSYCHOLOGICAL STATE & BEHAVIORAL DIRECTIVES:\n"
